@@ -4,13 +4,13 @@ Sistema web multiusuario donde cualquier persona crea su cuenta, vincula el buz�
 sus comprobantes de compra, y el sistema clasifica su gasto por categoría mostrándole en vivo el
 avance contra su presupuesto mensual.
 
-**EIF509 Desarrollo de Aplicaciones Basadas en Web · NRC 51092 · Grupo G01 · II Ciclo 2026**
+**EIF509 Desarrollo de Aplicaciones Basadas en Web · II Ciclo 2026**
 Universidad Nacional · Escuela de Informática y Computación
 
 | |                                                         |
 |---|---------------------------------------------------------|
-| **Integrante 1** | Luis Antonio Montes de Oca Ruiz · carné 191862          |
-| **Integrante 2** | Jose Alexis Solís Carvajal · carné `<COMPLETAR>`        |
+| **Integrantes** | Jose Alexis Solís Carvajal · 1-1623-0238          |
+|  |    Luis Antonio Montes de Oca Ruiz · 1-1800-0270     |
 | **Entrega actual** | Laboratorio 1 — Arquitectura base y esqueleto por capas |
 
 ---

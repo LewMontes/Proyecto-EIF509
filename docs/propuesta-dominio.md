@@ -11,8 +11,8 @@
 |                       |                                                             |
 |-----------------------|-------------------------------------------------------------|
 | **Sistema propuesto** | **Gastonomo** — control de gastos personales por categorías |
-| **Integrantes**       | Jose Alexis Solís Carvajal · carné               |
-|        |    Luis Antonio Montes de Oca Ruiz · carné 191862                      |
+| **Integrantes**       | Jose Alexis Solís Carvajal · 1-1623-0238              |
+|        |    Luis Antonio Montes de Oca Ruiz · 1-1800-0270                      |
 
 ---
 
