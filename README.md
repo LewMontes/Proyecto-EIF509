@@ -29,8 +29,9 @@ Universidad Nacional · Escuela de Informática y Computación
 ## Qué incluye este laboratorio
 
 El Laboratorio 1 entrega **la arquitectura, no el sistema**. Es el esqueleto por capas funcionando
-de punta a punta con una sola entidad del dominio (`Categoria`, con `Usuario` como su dueña), para
-demostrar la estructura sin adelantar trabajo de los laboratorios siguientes.
+de punta a punta con dos entidades del dominio —`Categoria`, que es el eje del sistema, y
+`Usuario`, que es su dueña— para demostrar la estructura sin adelantar trabajo de los laboratorios
+siguientes.
 
 El dominio completo —once entidades y dos procesos de negocio— está diseñado y documentado en la
 [Propuesta de Dominio](docs/propuesta-dominio.md); se implementa en los laboratorios siguientes.
