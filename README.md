@@ -5,7 +5,7 @@ sus comprobantes de compra, y el sistema clasifica su gasto por categoría mostr
 avance contra su presupuesto mensual.
 
 **EIF509 Desarrollo de Aplicaciones Basadas en Web · II Ciclo 2026**
-Universidad Nacional · Escuela de Informática
+Universidad Nacional · Escuela de Informática y Computación
 
 | |                                                         |
 |---|---------------------------------------------------------|
@@ -40,7 +40,7 @@ El dominio completo —once entidades y dos procesos de negocio— está diseña
 
 ## Cómo correrlo
 
-Necesita **Python 3.12 o superior** (se usó 3.14). **No hace falta instalar ninguna base
+Necesitás **Python 3.12 o superior** (nosotros usamos 3.14). **No hace falta instalar ninguna base
 de datos**: en este laboratorio la aplicación usa SQLite local y crea el archivo sola al arrancar.
 
 ### 1. Clonar y crear el entorno virtual
@@ -91,7 +91,7 @@ Respuesta esperada:
 {"estado":"OK - sistema en linea","aplicacion":"Gastonomo","version":"0.1.0"}
 ```
 
-La documentación interactiva de la API se genera sola. Se puede abrir en el navegador:
+La documentación interactiva de la API se genera sola. Abrila en el navegador:
 
 - **Swagger UI** → http://localhost:8000/docs
 - **ReDoc** → http://localhost:8000/redoc
@@ -180,7 +180,8 @@ README.
 
 ## Estado del proyecto
 
-El curso son siete laboratorios incrementales sobre esta misma base.
+El curso son siete laboratorios incrementales sobre esta misma base. Todavía no sabemos el
+contenido exacto de cada uno, así que lo pendiente queda listado sin asignarle número.
 
 - [x] **Laboratorio 1** *(entregado)* — Arquitectura por capas, `Usuario` y `Categoria`, propuesta de dominio, CI
 

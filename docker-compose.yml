@@ -1,0 +1,124 @@
+# ============================================================================
+#  Gastonomo · Capa de datos completa
+#  EIF509 · Laboratorio 2
+#
+#  Levanta las dos bases y deja el esquema y los datos de ejemplo listos con
+#  UN SOLO COMANDO:
+#
+#      docker compose up -d
+#
+#  Qué pasa al ejecutarlo:
+#    1. Arranca PostgreSQL y espera a que su healthcheck diga que acepta
+#       conexiones (no basta con que el contenedor exista).
+#    2. Flyway aplica V1..V5 en orden y corre el callback de datos de ejemplo.
+#       Termina y se apaga: es una tarea, no un servicio.
+#    3. Arranca MongoDB y, la primera vez, ejecuta los scripts de
+#       db/mongo/init: crean la colección con su validador, sus índices y sus
+#       documentos de ejemplo.
+#
+#  Para volver a cero (borra los datos de los dos volúmenes):
+#
+#      docker compose down -v
+#
+#  Las credenciales tienen valores por defecto para que el comando de arriba
+#  funcione sin configurar nada. Para cambiarlas, copiá .env.ejemplo a .env.
+#  Son credenciales de desarrollo local: nunca se usan fuera de esta máquina.
+# ============================================================================
+
+name: gastonomo
+
+services:
+
+  # --------------------------------------------------------------------------
+  #  PostgreSQL · el núcleo transaccional
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: gastonomo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gastonomo}
+      POSTGRES_USER: ${POSTGRES_USER:-gastonomo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gastonomo_local}
+      # Los TIMESTAMPTZ se guardan en UTC; esto solo afecta cómo se muestran.
+      TZ: America/Costa_Rica
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_datos:/var/lib/postgresql/data
+    healthcheck:
+      # Flyway depende de este healthcheck. Sin él intentaría migrar contra una
+      # base que todavía está inicializándose y fallaría de forma intermitente.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gastonomo} -d ${POSTGRES_DB:-gastonomo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # --------------------------------------------------------------------------
+  #  Flyway · las migraciones versionadas
+  #
+  #  Es una tarea de un solo uso: aplica lo que falte y se apaga con código 0.
+  #  Verla como 'Exited (0)' en docker compose ps es el resultado correcto.
+  #
+  #  Flyway es una herramienta de la JVM y el proyecto es Python; correrla en su
+  #  propio contenedor evita pedirle a nadie que instale Java para migrar la
+  #  base. El esquema queda versionado en SQL plano, que es lo que se entrega.
+  # --------------------------------------------------------------------------
+  flyway:
+    image: flyway/flyway:11
+    container_name: gastonomo-flyway
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./db/postgres/migrations:/flyway/sql:ro
+      - ./db/postgres/seeds:/flyway/seeds:ro
+    command: >
+      -url=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-gastonomo}
+      -user=${POSTGRES_USER:-gastonomo}
+      -password=${POSTGRES_PASSWORD:-gastonomo_local}
+      -locations=filesystem:/flyway/sql,filesystem:/flyway/seeds
+      -connectRetries=15
+      -baselineOnMigrate=false
+      migrate
+
+  # --------------------------------------------------------------------------
+  #  MongoDB · el subdominio documental
+  #
+  #  Los scripts de db/mongo/init se ejecutan SOLO la primera vez, cuando el
+  #  volumen está vacío. Para volver a correrlos hay que hacer
+  #  'docker compose down -v'. Ver docs/modelo-de-datos.md.
+  # --------------------------------------------------------------------------
+  mongo:
+    image: mongo:8
+    container_name: gastonomo-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-gastonomo}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-gastonomo_local}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-gastonomo}
+      TZ: America/Costa_Rica
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo_datos:/data/db
+      - ./db/mongo/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet
+          -u ${MONGO_USER:-gastonomo}
+          -p ${MONGO_PASSWORD:-gastonomo_local}
+          --authenticationDatabase admin
+          --eval "db.adminCommand('ping').ok" | grep -q 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  postgres_datos:
+  mongo_datos:
