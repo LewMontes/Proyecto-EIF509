@@ -288,8 +288,13 @@ erDiagram
 
 | Entidad | Laboratorio |
 |---|---|
-| `USUARIO`, `CATEGORIA` | **Implementadas en el Laboratorio 1** |
-| Las nueve restantes | Pendientes para los laboratorios siguientes |
+| `USUARIO`, `CATEGORIA` | Implementadas como clases en el Laboratorio 1 |
+| Las once tablas del esquema, más `CATEGORIA_ESTANDAR` | **Creadas en PostgreSQL en el Laboratorio 2** |
+
+> **Actualizado en el Laboratorio 2.** El diagrama de arriba es el del Laboratorio 1. El modelo
+> implementado de verdad agrega una entidad —`CATEGORIA_ESTANDAR`, la taxonomía global que siembra
+> cada cuenta y a la que apuntan los comercios compartidos— y está en el
+> [Modelo de datos § 2.1](modelo-de-datos.md), con la explicación del ajuste en la § 5.1.
 
 Dos notas de modelado que valen la pena:
 
@@ -318,8 +323,9 @@ flowchart LR
     end
 
     subgraph Datos["Almacenamiento"]
-        SQLite[("SQLite local<br/><i>entregado ✓</i>")]
-        PG[("PostgreSQL<br/><i>pendiente</i>")]
+        SQLite[("SQLite local<br/><i>usa la app hoy</i>")]
+        PG[("PostgreSQL<br/><i>esquema entregado ✓ · Lab 2</i>")]
+        Mongo[("MongoDB<br/><i>bitacora_compras ✓ · Lab 2</i>")]
     end
 
     subgraph Ext["Externos"]
@@ -331,19 +337,27 @@ flowchart LR
     React -->|WebSocket · gasto en vivo| Uvicorn
     Uvicorn --> SQLite
     Uvicorn -.->|reemplaza a SQLite| PG
+    Uvicorn -.->|trazabilidad de la compra| Mongo
     Correo -->|lee, extrae y descarta| Uvicorn
     BCCR -->|carga diaria de tasas| Uvicorn
 
     classDef hecho fill:#DCFCE7,stroke:#16A34A,color:#14532D
     classDef futuro fill:#F1F5F9,stroke:#94A3B8,color:#334155
-    class Uvicorn,SQLite hecho
-    class React,PG,Correo,BCCR futuro
+    class Uvicorn,SQLite,PG,Mongo hecho
+    class React,Correo,BCCR futuro
 ```
 
 > **Una sola base de datos.** El sistema no almacena los comprobantes: lee cada correo, le extrae
 > los cuatro campos que necesita y descarta el contenido. Todo lo que se persiste tiene esquema
 > fijo, así que PostgreSQL lo cubre entero y no hace falta una base documental.
+>
+> **Revisado en el Laboratorio 2.** El sistema pasó a **persistencia políglota**: el núcleo sigue
+> completo en PostgreSQL —esa parte no cambió— y se sumó MongoDB con una sola colección,
+> `bitacora_compras`, que guarda la trazabilidad de cada compra. Los comprobantes siguen sin
+> almacenarse. Ver [ADR-002](adr/ADR-002-subdominio-documental-en-mongodb.md) y el
+> [Modelo de datos](modelo-de-datos.md).
 
-En el Laboratorio 1 solo están construidas las cajas verdes: la aplicación FastAPI levantando,
-respondiendo y guardando contra SQLite, con el esqueleto por capas listo para que las demás piezas
-se conecten encima.
+Las cajas verdes son lo construido hasta el Laboratorio 2: la aplicación FastAPI levantando y
+guardando contra SQLite, y las dos bases reales con su esquema, sus restricciones y sus datos de
+ejemplo, levantadas con `docker compose up -d`. Las flechas punteadas hacia PostgreSQL y MongoDB
+marcan lo que falta: **conectar la aplicación a ellas**, que es trabajo de un laboratorio siguiente.

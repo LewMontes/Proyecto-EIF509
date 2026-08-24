@@ -11,13 +11,13 @@ Universidad Nacional · Escuela de Informática y Computación
 |---|---------------------------------------------------------|
 | **Integrantes** | Jose Alexis Solís Carvajal · 1-1623-0238          |
 |  |    Luis Antonio Montes de Oca Ruiz · 1-1800-0270     |
-| **Entrega actual** | Laboratorio 1 — Arquitectura base y esqueleto por capas |
+| **Entrega actual** | Laboratorio 2 — La capa de datos completa: PostgreSQL + MongoDB |
 
 ---
 
 ## Stack
 
-**Python 3.14 · FastAPI · SQLAlchemy 2.0 · PostgreSQL · React**
+**Python 3.14 · FastAPI · SQLAlchemy 2.0 · PostgreSQL · MongoDB · React**
 
 > El curso recomienda Java 21 + Spring Boot 3. Este equipo solicitó y obtuvo autorización del
 > profesor para usar un stack alternativo equivalente. La justificación técnica completa —con las
@@ -28,20 +28,90 @@ Universidad Nacional · Escuela de Informática y Computación
 
 ## Qué incluye este laboratorio
 
-El Laboratorio 1 entrega **la arquitectura, no el sistema**. Es el esqueleto por capas funcionando
-de punta a punta con dos entidades del dominio —`Categoria`, que es el eje del sistema, y
-`Usuario`, que es su dueña— para demostrar la estructura sin adelantar trabajo de los laboratorios
-siguientes.
+El **Laboratorio 2** entrega **la capa de datos completa**, con persistencia políglota:
 
-El dominio completo —once entidades y dos procesos de negocio— está diseñado y documentado en la
-[Propuesta de Dominio](docs/propuesta-dominio.md); se implementa en los laboratorios siguientes.
+| Entregable | Dónde está |
+|---|---|
+| Esquema PostgreSQL en 3FN con migraciones Flyway `V1`…`V5`, restricciones e índices justificados | [`db/postgres/migrations/`](db/postgres/migrations/) |
+| Subdominio en MongoDB: la colección `bitacora_compras`, con la decisión de incrustar justificada | [`db/mongo/init/`](db/mongo/init/) · [ADR-002](docs/adr/ADR-002-subdominio-documental-en-mongodb.md) |
+| Datos de ejemplo realistas en las dos bases | [`db/postgres/seeds/`](db/postgres/seeds/) · [`db/mongo/init/02_datos_de_ejemplo.js`](db/mongo/init/02_datos_de_ejemplo.js) |
+| Docker Compose que levanta PostgreSQL y MongoDB con un solo comando | [`docker-compose.yml`](docker-compose.yml) |
+| Documento técnico del modelo y las decisiones de diseño | [Modelo de datos](docs/modelo-de-datos.md) |
+
+En números: **12 tablas · 17 llaves foráneas · 17 restricciones `UNIQUE` · 42 `CHECK` · 46 índices**
+en PostgreSQL, más **1 colección con validador de esquema y 4 índices** en MongoDB.
+
+El **Laboratorio 1**, que sigue en el repositorio, entregó la arquitectura por capas funcionando de
+punta a punta con dos entidades (`Usuario` y `Categoria`) sobre SQLite. La aplicación **todavía usa
+SQLite**: conectarla a estas dos bases es trabajo de un laboratorio siguiente.
+
+El dominio completo está diseñado y documentado en la
+[Propuesta de Dominio](docs/propuesta-dominio.md).
 
 ---
 
-## Cómo correrlo
+## Cómo levantar las bases de datos
 
-Necesitás **Python 3.12 o superior** (nosotros usamos 3.14). **No hace falta instalar ninguna base
-de datos**: en este laboratorio la aplicación usa SQLite local y crea el archivo sola al arrancar.
+Necesitás **Docker Desktop**. Desde la raíz del repositorio:
+
+```bash
+docker compose up -d
+```
+
+Eso levanta PostgreSQL, aplica las cinco migraciones de Flyway con sus datos de ejemplo, y levanta
+MongoDB con la colección `bitacora_compras` creada, validada, indexada y sembrada. No hay que
+configurar nada más: las credenciales de desarrollo vienen como valores por defecto (para cambiarlas,
+copiá `.env.ejemplo` a `.env`).
+
+Comprobá que todo quedó arriba:
+
+```bash
+docker compose ps -a
+```
+
+`gastonomo-postgres` y `gastonomo-mongo` deben decir `Up (healthy)`, y **`gastonomo-flyway` debe
+decir `Exited (0)`**: es una tarea que migra y se apaga, no un servicio.
+
+Mirá los datos de PostgreSQL:
+
+```bash
+docker compose exec postgres psql -U gastonomo -d gastonomo -c "\dt"
+```
+
+Y los de MongoDB:
+
+```bash
+docker compose exec mongo mongosh --quiet -u gastonomo -p gastonomo_local --authenticationDatabase admin gastonomo --eval "db.bitacora_compras.findOne({compra_id: NumberLong(7)})"
+```
+
+Para borrar todo y empezar de cero:
+
+```bash
+docker compose down -v
+```
+
+### Comprobar que las restricciones hacen su trabajo
+
+Doce intentos de meter datos que el dominio prohíbe. Los doce deben salir como `RECHAZADO OK`:
+
+```bash
+docker compose exec -T postgres psql -U gastonomo -d gastonomo -q < db/pruebas/restricciones_postgres.sql
+```
+
+Seis intentos contra el validador de MongoDB, más las consultas que justifican el diseño de la
+colección:
+
+```bash
+docker compose exec -T mongo mongosh --quiet -u gastonomo -p gastonomo_local --authenticationDatabase admin gastonomo < db/pruebas/validador_mongo.js
+```
+
+---
+
+## Cómo correr la aplicación
+
+Necesitás **Python 3.12 o superior** (nosotros usamos 3.14). **No hace falta Docker para esta
+parte**: la aplicación sigue usando SQLite local y crea el archivo sola al arrancar. Conectarla a las
+bases de arriba es trabajo de un laboratorio siguiente.
 
 ### 1. Clonar y crear el entorno virtual
 
@@ -146,6 +216,19 @@ src/app/
 └── main.py         → Arma la app y traduce errores de negocio a códigos HTTP.
 ```
 
+La capa de datos real —lo que entrega el Laboratorio 2— vive fuera de `src/`, porque es SQL y
+JavaScript de base de datos, no código de la aplicación:
+
+```
+db/
+├── postgres/
+│   ├── migrations/     → V1..V5, el historial versionado del esquema
+│   └── seeds/          → datos de ejemplo (callback afterMigrate, no migración)
+├── mongo/
+│   └── init/           → colección bitacora_compras: validador, índices y datos
+└── pruebas/            → los intentos de violar las restricciones y el validador
+```
+
 Tres decisiones sostienen la separación, ya que Python no la impone por sí solo:
 
 1. El servicio recibe una **dataclass propia** (`CrearCategoriaComando`), no un modelo de FastAPI.
@@ -160,9 +243,12 @@ Tres decisiones sostienen la separación, ya que Python no la impone por sí sol
 
 | Documento | Qué contiene |
 |---|---|
-| [Propuesta de Dominio](docs/propuesta-dominio.md) | El negocio, los actores, las 11 entidades y los 2 procesos con sus reglas, cálculos y validaciones. |
+| [Modelo de datos](docs/modelo-de-datos.md) | **Laboratorio 2.** El esquema relacional, su normalización, sus restricciones e índices justificados, y el subdominio de MongoDB con su justificación completa. |
+| [Propuesta de Dominio](docs/propuesta-dominio.md) | El negocio, los actores, las entidades y los 2 procesos con sus reglas, cálculos y validaciones. |
 | [Arquitectura](docs/arquitectura.md) | Diagramas de capas, recorrido de una petición, modelo entidad-relación y despliegue previsto. |
 | [ADR-001 · Elección del stack](docs/adr/ADR-001-eleccion-del-stack.md) | Por qué Python + FastAPI + PostgreSQL + React, qué descartamos y qué nos cuesta. |
+| [ADR-002 · Subdominio documental](docs/adr/ADR-002-subdominio-documental-en-mongodb.md) | Por qué la trazabilidad de la compra va en MongoDB incrustada, qué candidatos descartamos y qué invalidaría la decisión. |
+| [ADR-003 · Flyway para las migraciones](docs/adr/ADR-003-flyway-para-las-migraciones.md) | Por qué Flyway en un contenedor en lugar de Alembic, y qué nos cuesta. |
 
 ---
 
@@ -184,10 +270,11 @@ El curso son siete laboratorios incrementales sobre esta misma base. Todavía no
 contenido exacto de cada uno, así que lo pendiente queda listado sin asignarle número.
 
 - [x] **Laboratorio 1** *(entregado)* — Arquitectura por capas, `Usuario` y `Categoria`, propuesta de dominio, CI
+- [x] **Laboratorio 2** *(entregado)* — Esquema PostgreSQL con migraciones Flyway, subdominio `bitacora_compras` en MongoDB, seeds en ambas bases y Docker Compose
 
 Pendiente para los laboratorios siguientes:
 
-- [ ] PostgreSQL con migraciones y las nueve entidades restantes del dominio
+- [ ] Conectar la aplicación a PostgreSQL y MongoDB, y alinear los modelos de SQLAlchemy con el esquema migrado
 - [ ] Frontend React con avance de presupuesto en vivo
 - [ ] Proceso transaccional de ingesta y conciliación de comprobantes
 - [ ] Autenticación, roles y vinculación del buzón de correo

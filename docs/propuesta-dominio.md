@@ -160,6 +160,13 @@ Tres consecuencias de diseño:
 
 ### Subdominio documental candidato
 
+> **Revisado en el Laboratorio 2.** Lo que sigue es lo que concluimos en el Laboratorio 1, y el
+> argumento sobre los comprobantes **sigue vigente**: no se almacenan. Lo que cambió es que
+> encontramos el subdominio documental en otro lugar —el rastro de lo que el sistema *hace* con esos
+> datos, no los datos que entran—. Está implementado en MongoDB como la colección
+> `bitacora_compras`, y la decisión completa está en
+> [ADR-002](adr/ADR-002-subdominio-documental-en-mongodb.md).
+
 **No identificamos ninguno.** Todo lo que el sistema persiste tiene esquema fijo y se modela
 completo en PostgreSQL.
 
