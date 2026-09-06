@@ -49,8 +49,25 @@ jobs:                         # Un workflow tiene uno o más "jobs" (trabajos)
 
       # Paso 5: correr las pruebas
       #   Si algo falla, el workflow se marca en ROJO. Si todo pasa, en VERDE.
+      #   "-m 'not integracion'": las pruebas de integración van aparte, en el
+      #   paso siguiente, porque tardan más (levantan un contenedor).
       - name: Correr las pruebas
-        run: pytest -v
+        run: pytest -v -m "not integracion"
+
+      # Paso 5b: las pruebas de integración contra un PostgreSQL de verdad
+      #   Testcontainers levanta un postgres:16-alpine en Docker, corre las
+      #   pruebas contra él y lo apaga. El runner de GitHub Actions ya trae
+      #   Docker instalado y corriendo, así que no hace falta ningún servicio
+      #   declarado en el workflow: el contenedor lo administra la prueba.
+      #
+      #   Estas son las que verifican lo que SQLite no puede: NUMERIC exacto,
+      #   ON DELETE CASCADE, el largo de los VARCHAR, el ROLLBACK real y que
+      #   el mapeo calce con el esquema (ver docs/persistencia.md).
+      #
+      #   "--strict-markers" para que un marcador mal escrito falle acá en vez
+      #   de saltarse las pruebas en silencio.
+      - name: Correr las pruebas de integración (PostgreSQL con Testcontainers)
+        run: pytest -v --strict-markers -m integracion
 
       # Paso 6: verificar que la aplicación de verdad levanta
       #   Los tests usan un cliente en memoria; esto arranca el servidor real
@@ -69,3 +86,35 @@ jobs:                         # Un workflow tiene uno o más "jobs" (trabajos)
           done
           echo "La aplicación no respondió a tiempo."
           exit 1
+
+      # ---- Frontend: mismos chequeos, para el proyecto de Vite/React ----
+
+      # Paso 7: instalar Node (la misma versión que usamos localmente)
+      - name: Configurar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Paso 8: instalar las dependencias del frontend
+      #   "ci" en vez de "install": usa exactamente lo que dice el lockfile,
+      #   que es lo que se espera de un servidor de integración continua.
+      - name: Instalar dependencias del frontend
+        working-directory: frontend
+        run: npm ci
+
+      # Paso 9: TypeScript compila limpio (equivale al "ruff check" de Python)
+      - name: Revisar tipos (tsc)
+        working-directory: frontend
+        run: npx tsc -b
+
+      # Paso 10: revisar el estilo del código del frontend
+      - name: Revisar el código (oxlint)
+        working-directory: frontend
+        run: npm run lint
+
+      # Paso 11: correr las pruebas del frontend
+      - name: Correr las pruebas del frontend
+        working-directory: frontend
+        run: npm run test
