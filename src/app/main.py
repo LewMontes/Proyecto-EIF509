@@ -10,15 +10,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.business.errors import RecursoNoEncontrado, ReglaDeNegocioViolada, ValidacionFallida
-from app.config.database import crear_tablas
-from app.config.settings import get_settings
-from app.presentation.routers import categorias, salud
+from app.config.database import crear_tablas, sembrar_categorias_estandar
+from app.config.settings import obtener_configuracion
+from app.presentation.routers import categorias, compras, salud
 
 
 @asynccontextmanager
 async def ciclo_de_vida(_: FastAPI):
     """Prepara la base al arrancar. Mas adelante lo reemplazan las migraciones."""
     crear_tablas()
+    sembrar_categorias_estandar()
     yield
 
 
@@ -28,11 +29,11 @@ def crear_app() -> FastAPI:
     Se usa una funcion en vez de un app global para poder crear instancias
     limpias en las pruebas sin arrastrar configuracion de una a otra.
     """
-    settings = get_settings()
+    configuracion = obtener_configuracion()
 
     app = FastAPI(
-        title=settings.app_nombre,
-        version=settings.app_version,
+        title=configuracion.nombre_aplicacion,
+        version=configuracion.version,
         description="Tracker de compras personales por categorias - EIF509",
         lifespan=ciclo_de_vida,
     )
@@ -48,6 +49,7 @@ def crear_app() -> FastAPI:
 
     app.include_router(salud.router)
     app.include_router(categorias.router)
+    app.include_router(compras.router)
 
     registrar_manejadores_de_error(app)
     return app

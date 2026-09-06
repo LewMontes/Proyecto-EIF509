@@ -128,7 +128,11 @@ class CrearCategoriaRequest(BaseModel):
 
     usuario_id: int = Field(gt=0, le=_ID_MAXIMO, description="Titular dueno de la categoria")
     nombre: str = Field(min_length=1, max_length=60, examples=["Alimentacion"])
-    color_hex: str = Field(max_length=7, examples=["#2563EB"])
+    # Con default: el color es una preferencia visual, no un dato que el titular
+    # tenga que decidir para poder clasificar un gasto. Sin el, crear una
+    # categoria sin color fallaria con un 422 de forma antes de que el negocio
+    # llegara siquiera a opinar sobre si la categoria se puede crear.
+    color_hex: str = Field(default="#6B7280", min_length=7, max_length=7, examples=["#2563EB"])
     descripcion: str | None = Field(default=None, max_length=255)
     categoria_padre_id: int | None = Field(
         default=None,

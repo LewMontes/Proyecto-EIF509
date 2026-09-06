@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.config.settings import get_settings
+from app.config.settings import obtener_configuracion
 from app.presentation.schemas import SaludResponse
 
 router = APIRouter(prefix="/api", tags=["salud"])
@@ -10,9 +10,9 @@ router = APIRouter(prefix="/api", tags=["salud"])
 
 @router.get("/salud", response_model=SaludResponse)
 def consultar_salud() -> SaludResponse:
-    settings = get_settings()
+    configuracion = obtener_configuracion()
     return SaludResponse(
         estado="OK - sistema en linea",
-        aplicacion=settings.app_nombre,
-        version=settings.app_version,
+        aplicacion=configuracion.nombre_aplicacion,
+        version=configuracion.version,
     )

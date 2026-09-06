@@ -340,7 +340,7 @@ por definición no son gasto.
 ### 5.1 · Dónde estaba
 
 En [`CompraService.listar_del_titular`](../src/app/business/services/compra_service.py) -la que
-alimenta la pantalla de Compras del frontend.
+responde `GET /api/compras`.
 
 La consulta de compras era una sola y estaba bien. El problema era lo que venía después: por
 **cada** compra devuelta, `_detallar` resolvía a mano los nombres que la entidad solo tiene como
@@ -428,7 +428,7 @@ con un `obtener_por_id` dentro del bucle. Ver
 
 Dos suites, con criterios distintos de qué va en cada una.
 
-### 6.1 · Sobre SQLite en memoria — `tests/` · 352 pruebas
+### 6.1 · Sobre SQLite en memoria — `tests/` · 40 pruebas
 
 La fixture `sesion` de [`tests/conftest.py`](../tests/conftest.py) crea el esquema con
 `Base.metadata.create_all()` y lo destruye al terminar, con `StaticPool` para que todas las

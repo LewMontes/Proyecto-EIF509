@@ -10,8 +10,8 @@ from app.data.repositories.categoria_repository import CategoriaRepository
 
 
 @pytest.fixture
-def servicio(session: Session) -> CategoriaService:
-    return CategoriaService(CategoriaRepository(session))
+def servicio(sesion: Session) -> CategoriaService:
+    return CategoriaService(CategoriaRepository(sesion))
 
 
 class TestCreacion:
@@ -54,10 +54,10 @@ class TestNombreUnico:
         with pytest.raises(ReglaDeNegocioViolada, match="Ya existe"):
             servicio.crear(CrearCategoriaComando(usuario.id, "Alimentacion"))
 
-    def test_permite_el_mismo_nombre_en_otro_usuario(self, servicio, usuario, session):
+    def test_permite_el_mismo_nombre_en_otro_usuario(self, servicio, usuario, sesion):
         otro = Usuario(nombre_completo="Otra persona", correo="otra@est.una.ac.cr")
-        session.add(otro)
-        session.commit()
+        sesion.add(otro)
+        sesion.commit()
 
         servicio.crear(CrearCategoriaComando(usuario.id, "Alimentacion"))
         categoria = servicio.crear(CrearCategoriaComando(otro.id, "Alimentacion"))
@@ -81,10 +81,10 @@ class TestJerarquia:
                 CrearCategoriaComando(usuario.id, "Supermercado", categoria_padre_id=999)
             )
 
-    def test_rechaza_padre_de_otro_usuario(self, servicio, usuario, session):
+    def test_rechaza_padre_de_otro_usuario(self, servicio, usuario, sesion):
         otro = Usuario(nombre_completo="Otra persona", correo="otra@est.una.ac.cr")
-        session.add(otro)
-        session.commit()
+        sesion.add(otro)
+        sesion.commit()
         ajena = servicio.crear(CrearCategoriaComando(otro.id, "Alimentacion"))
 
         # Pasar un id ajeno no debe dejar colgar una categoria del arbol de otra persona.

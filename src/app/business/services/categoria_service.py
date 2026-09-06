@@ -67,11 +67,17 @@ class CategoriaService:
         # La categoria nueva y el cambio de es_hoja de su padre se confirman
         # juntos: si el padre quedara marcado como hoja sin su subcategoria,
         # el arbol de categorias quedaria mintiendo.
-        self._repositorio.session.commit()
+        self._repositorio.sesion.commit()
         return categoria
 
     def listar(self, usuario_id: int) -> list[Categoria]:
-        return self._repositorio.listar_por_usuario(usuario_id)
+        """Las categorias donde el titular puede clasificar gasto ahora mismo.
+
+        Solo las activas: una categoria desactivada tiene que seguir existiendo
+        -las compras historicas apuntan a ella- pero no deberia ofrecerse para
+        clasificar nada nuevo.
+        """
+        return self._repositorio.listar_activas_de_usuario(usuario_id)
 
     # ------------------------------------------------------------------
     #  Reglas y validaciones

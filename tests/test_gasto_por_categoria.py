@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.business.errors import DatosInvalidos
+from app.business.errors import ValidacionFallida
 from app.business.services.compra_service import CompraService
 from app.data.models.categoria import Categoria
 from app.data.models.comercio import Comercio
@@ -288,14 +288,14 @@ def test_no_mezcla_el_gasto_de_otro_titular(
 
 
 def test_un_mes_invalido_es_un_error_de_negocio(usuario: Usuario, servicio: CompraService) -> None:
-    with pytest.raises(DatosInvalidos):
+    with pytest.raises(ValidacionFallida):
         servicio.gasto_por_categoria_del_titular(usuario.id, 2026, 13)
 
 
 def test_una_lista_de_categorias_vacia_es_un_error_de_negocio(
     usuario: Usuario, servicio: CompraService
 ) -> None:
-    with pytest.raises(DatosInvalidos):
+    with pytest.raises(ValidacionFallida):
         servicio.gasto_por_categoria_del_titular(usuario.id, 2026, 9, categoria_ids=[])
 
 

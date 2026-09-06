@@ -5,9 +5,12 @@ solo se podía "ver" indirectamente, a través de los campos planos de
 `Comprobante` o de los eventos sueltos de su bitácora en Mongo. Nunca su
 propio estado (`requiere_revision`, con qué método de pago y categoría
 quedó). Estos endpoints son lo que la hace un dato de primera clase: se
-puede listar, filtrar por "necesita revisión", ver en detalle, y corregir a
-mano -y ahí sí, bajar hasta el comprobante que la generó (`/bitacora`, el
-diferenciador declarado del dominio, ver ADR-002).
+puede listar, filtrar por "necesita revisión", ver en detalle, agrupar el
+gasto del mes por categoría -y ahí sí, bajar hasta el comprobante que la
+generó (`/bitacora`, el diferenciador declarado del dominio, ver ADR-002).
+
+Como el resto de la API de este repositorio, el titular se identifica con el
+parámetro `usuario_id`: no hay capa de autenticación todavía.
 """
 
 from typing import Annotated
@@ -16,17 +19,11 @@ from fastapi import APIRouter, Query
 
 from app.business.errors import RecursoNoEncontrado
 from app.business.services.compra_service import CompraDetallada
-from app.presentation.dependencies import (
-    ServicioDeBitacora,
-    ServicioDeCompras,
-    ServicioDeConciliacion,
-    VerificarTitular,
-)
+from app.presentation.dependencies import ServicioDeBitacora, ServicioDeCompras
 from app.presentation.schemas import (
     CompraResponse,
     EventoBitacoraResponse,
     GastoDeCategoriaResponse,
-    ResolverRevisionCompraRequest,
 )
 
 router = APIRouter(prefix="/api/compras", tags=["compras"])
@@ -61,7 +58,6 @@ def _respuesta(detalle: CompraDetallada) -> CompraResponse:
 )
 def listar(
     servicio: ServicioDeCompras,
-    _: VerificarTitular,
     usuario_id: int = Query(gt=0, le=2_147_483_647),
     requiere_revision: bool | None = Query(
         default=None,
@@ -82,7 +78,6 @@ def listar(
 )
 def gasto_por_categoria(
     servicio: ServicioDeCompras,
-    _: VerificarTitular,
     usuario_id: int = Query(gt=0, le=2_147_483_647),
     anio: int = Query(ge=2000, le=2100),
     mes: int = Query(ge=1, le=12),
@@ -121,28 +116,8 @@ def gasto_por_categoria(
 def detalle(
     compra_id: int,
     servicio: ServicioDeCompras,
-    _: VerificarTitular,
     usuario_id: int = Query(gt=0, le=2_147_483_647),
 ) -> CompraResponse:
-    return _respuesta(servicio.obtener_detalle_del_titular(usuario_id, compra_id))
-
-
-@router.post(
-    "/{compra_id}/resolver",
-    response_model=CompraResponse,
-    summary="Corregir a mano el método de pago y/o la categoría de una compra",
-)
-def resolver(
-    compra_id: int,
-    peticion: ResolverRevisionCompraRequest,
-    servicio: ServicioDeCompras,
-    conciliacion: ServicioDeConciliacion,
-    _: VerificarTitular,
-    usuario_id: int = Query(gt=0, le=2_147_483_647),
-) -> CompraResponse:
-    conciliacion.resolver_revision(
-        usuario_id, compra_id, peticion.metodo_pago_id, peticion.categoria_id
-    )
     return _respuesta(servicio.obtener_detalle_del_titular(usuario_id, compra_id))
 
 
@@ -155,7 +130,6 @@ def bitacora_de_compra(
     compra_id: int,
     servicio: ServicioDeCompras,
     bitacora: ServicioDeBitacora,
-    _: VerificarTitular,
     usuario_id: int = Query(gt=0, le=2_147_483_647),
 ) -> list[EventoBitacoraResponse]:
     """Lista de eventos en el orden en que ocurrieron.

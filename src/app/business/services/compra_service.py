@@ -10,7 +10,7 @@ servicio es lo que la hace un dato de primera clase: listable, filtrable por
 
 from dataclasses import dataclass
 
-from app.business.errors import DatosInvalidos, RecursoNoEncontrado
+from app.business.errors import RecursoNoEncontrado, ValidacionFallida
 from app.data.models.compra import Compra
 from app.data.repositories.compra_repository import CompraRepository, GastoDeCategoria
 
@@ -89,12 +89,12 @@ class CompraService:
         categorías"- sin que cada una necesite su propia consulta.
         """
         if not 1 <= mes <= 12:
-            raise DatosInvalidos(f"El mes {mes} no existe: tiene que estar entre 1 y 12.")
+            raise ValidacionFallida(f"El mes {mes} no existe: tiene que estar entre 1 y 12.")
         if categoria_ids is not None and not categoria_ids:
             # Una lista vacía significaría "ninguna categoría", que devuelve
             # siempre vacío: casi seguro es un filtro mal armado, no una
             # pregunta real. `None` es como se pide "todas".
-            raise DatosInvalidos("La lista de categorias no puede venir vacia.")
+            raise ValidacionFallida("La lista de categorias no puede venir vacia.")
         return self.compras.gasto_por_categoria(
             usuario_id, anio, mes, categoria_ids, metodo_pago_id, incluir_sin_categoria
         )
