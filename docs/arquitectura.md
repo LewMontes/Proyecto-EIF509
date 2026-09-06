@@ -33,6 +33,7 @@ flowchart TD
         direction TB
         RepoBase["repositories/base_repository.py<br/><i>CRUD genérico</i>"]
         RepoCat["repositories/categoria_repository.py<br/><i>consultas de categoría</i>"]
+        RepoUsr["repositories/usuario_repository.py<br/><i>consultas del titular</i>"]
         Modelos["models/<br/>usuario.py · categoria.py · base.py · enums.py"]
     end
 
@@ -54,8 +55,11 @@ flowchart TD
     SCat --> ErrNeg
     ErrNeg -.->|se traduce en| Errores
     SCat --> RepoCat
+    SCat --> RepoUsr
     RepoCat --> RepoBase
+    RepoUsr --> RepoBase
     RepoCat --> Modelos
+    RepoUsr --> Modelos
     RepoBase --> Modelos
     Modelos --> BD
 
@@ -72,7 +76,7 @@ flowchart TD
 
     class RSalud,RCat,Schemas,Deps,Errores pres
     class SCat,Comando,ErrNeg neg
-    class RepoBase,RepoCat,Modelos dat
+    class RepoBase,RepoCat,RepoUsr,Modelos dat
     class Settings,DB conf
     class Cliente,BD ext
 ```
@@ -114,15 +118,18 @@ sequenceDiagram
     participant D as dependencies.py<br/>(presentación)
     participant S as CategoriaService<br/>(negocio)
     participant P as CategoriaRepository<br/>(datos)
+    participant U as UsuarioRepository<br/>(datos)
     participant BD as Base de datos
 
     C->>R: POST /api/categorias
     R->>D: pide el servicio
     D->>D: abre la sesión de base de datos
-    D-->>R: CategoriaService(CategoriaRepository(sesión))
+    D-->>R: CategoriaService(CategoriaRepository, UsuarioRepository)
     R->>R: convierte el JSON en CrearCategoriaComando
     R->>S: crear(comando)
     S->>S: valida nombre y color
+    S->>U: obtener_por_id (¿el titular existe y está activo?)
+    U->>BD: SELECT
     S->>P: buscar_por_nombre (¿ya existe?)
     P->>BD: SELECT
     S->>P: obtener_por_id (¿la padre es del mismo usuario?)
@@ -360,4 +367,10 @@ flowchart LR
 Las cajas verdes son lo construido hasta el Laboratorio 2: la aplicación FastAPI levantando y
 guardando contra SQLite, y las dos bases reales con su esquema, sus restricciones y sus datos de
 ejemplo, levantadas con `docker compose up -d`. Las flechas punteadas hacia PostgreSQL y MongoDB
-marcan lo que falta: **conectar la aplicación a ellas**, que es trabajo de un laboratorio siguiente.
+marcaban lo que faltaba entonces: **conectar la aplicación a ellas**.
+
+> **Revisado en el Laboratorio 3.** Las dos conexiones ya existen. `GASTONOMO_URL_BASE_DATOS`
+> apunta el ORM al PostgreSQL del `docker compose` en lugar de SQLite, y `BitacoraComprasService`
+> escribe la trazabilidad en MongoDB desde la conciliación real. Cómo está construida esa capa
+> -mapeo, repositorios, consultas de negocio y el N+1 que produce hoy la lista de compras- está en
+> [Persistencia](persistencia.md).

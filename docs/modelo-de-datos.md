@@ -581,6 +581,7 @@ docker compose exec -T mongo mongosh --quiet -u gastonomo -p gastonomo_local --a
 
 | Documento | Qué contiene |
 |---|---|
+| [Persistencia](persistencia.md) | **Laboratorio 3.** Cómo la aplicación habla con este esquema: mapeo objeto-relacional, repositorios, consultas de negocio con su SQL generado y la evidencia del N+1. |
 | [Propuesta de Dominio](propuesta-dominio.md) | El negocio, los actores, las entidades y los dos procesos con sus reglas, cálculos y validaciones. |
 | [Arquitectura](arquitectura.md) | Capas, recorrido de una petición y despliegue previsto. |
 | [ADR-001 · Elección del stack](adr/ADR-001-eleccion-del-stack.md) | Por qué Python + FastAPI + PostgreSQL + React. |
