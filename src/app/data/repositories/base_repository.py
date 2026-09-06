@@ -1,6 +1,4 @@
-"""Repositorio generico con las operaciones que comparten todas las entidades."""
-
-from __future__ import annotations
+"""CRUD generico compartido por todos los repositorios."""
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -8,30 +6,31 @@ from sqlalchemy.orm import Session
 from app.data.models.base import Base
 
 
-class BaseRepository[ModeloT: Base]:
-    """CRUD basico sobre una entidad.
+class BaseRepository[TEntidad: Base]:
+    """Operaciones que toda entidad necesita, sin repetirlas una vez por tabla.
 
-    Los repositorios NO hacen commit: solo agregan y consultan. Quien decide
-    cuando confirmar la transaccion es el servicio de negocio, porque es el unico
-    que sabe si la operacion completa ya termino bien.
+    Ningun metodo confirma la transaccion. El repositorio agrega y consulta; el
+    `commit` lo hace el servicio, que es el unico que sabe si la operacion de
+    negocio completa termino bien. Ese limite es el que mas adelante sostiene el
+    proceso de conciliacion, que escribe en cinco tablas.
     """
 
-    modelo: type[ModeloT]
+    def __init__(self, sesion: Session, modelo: type[TEntidad]) -> None:
+        self.sesion = sesion
+        self.modelo = modelo
 
-    def __init__(self, session: Session) -> None:
-        self.session = session
+    def agregar(self, entidad: TEntidad) -> TEntidad:
+        """Suma la entidad a la sesion y la vacia contra la base, sin confirmar.
 
-    def obtener_por_id(self, entidad_id: int) -> ModeloT | None:
-        return self.session.get(self.modelo, entidad_id)
-
-    def listar(self, limite: int = 100, desplazamiento: int = 0) -> list[ModeloT]:
-        sentencia = select(self.modelo).limit(limite).offset(desplazamiento)
-        return list(self.session.scalars(sentencia))
-
-    def agregar(self, entidad: ModeloT) -> ModeloT:
-        self.session.add(entidad)
-        self.session.flush()  # asigna el id sin cerrar la transaccion
+        El `flush` es lo que hace que la entidad reciba su id, para que el
+        servicio pueda seguir trabajando con ella dentro de la misma transaccion.
+        """
+        self.sesion.add(entidad)
+        self.sesion.flush()
         return entidad
 
-    def eliminar(self, entidad: ModeloT) -> None:
-        self.session.delete(entidad)
+    def obtener_por_id(self, identificador: int) -> TEntidad | None:
+        return self.sesion.get(self.modelo, identificador)
+
+    def listar(self) -> list[TEntidad]:
+        return list(self.sesion.scalars(select(self.modelo)))
