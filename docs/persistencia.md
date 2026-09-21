@@ -109,22 +109,26 @@ Una diferencia que conviene declarar en vez de esconder, porque es lo primero qu
 **El esquema que migra Flyway y el esquema que usa la aplicación en ejecución son dos linajes
 distintos.**
 
-| | Flyway (`db/postgres/migrations/`) | Aplicación (`Base.metadata` + `db/postgres/esquema-aplicacion/`) |
+| | Flyway (`db/postgres/migrations/`) | Aplicación (`Base.metadata`) |
 |---|---|---|
 | Tablas | 12 | 14 |
-| Quién lo crea | `flyway migrate`, `V1`…`V5` | `Base.metadata.create_all()` más scripts idempotentes `001`…`005` |
-| Falta ahí | — | `comercio_categoria_sugerida` y `transferencia_sinpe` no existen en las migraciones `V1`…`V5` |
+| Quién lo crea | `flyway migrate`, `V1`…`V5` | `Base.metadata.create_all()` al arrancar |
+| Falta ahí | `comercio_categoria_sugerida` y `transferencia_sinpe` no existen en `V1`…`V5` | — |
 
 Las dos entidades que faltan nacieron después del Laboratorio 2, con las funcionalidades
-adelantadas (sugerencia de categoría por comercio, y transferencias SINPE recibidas). Los scripts
-de `db/postgres/esquema-aplicacion/` las crearon sobre la base viva porque `create_all()` crea
-tablas nuevas pero nunca altera una que ya existía.
+adelantadas: la sugerencia de categoría por comercio y las transferencias SINPE recibidas.
 
-**Consecuencia:** la aplicación **crea** su esquema en vez de **validarlo** contra el de Flyway. La
-validación en sí ya existe y corre en el CI -`test_el_mapeo_calza_con_el_esquema_que_hay_en_la_base`
-compara tabla por tabla y columna por columna contra el `Inspector` de una base real, que es lo que
-hace `ddl-auto=validate`. Lo que falta es que el esquema contra el que valida venga de Flyway y no
-del propio mapeo; queda anotado en la [§7](#7--lo-que-queda-abierto).
+> **Cerrado en el Laboratorio 4.** Las migraciones `V6` y `V7` traen esas dos tablas -y las columnas
+> del parseo de `comprobante` y las nuevas de `usuario`- a Flyway, que vuelve a ser la única fuente
+> de verdad del esquema: aplicando `V1`…`V7` sobre una base limpia, las 14 tablas y todas las
+> columnas que el mapeo usa existen. Ver [la capa de negocio § 8](negocio.md#8--lo-que-queda-abierto).
+
+**Lo que sigue abierto:** la aplicación **crea** su esquema en vez de **validarlo** contra el de
+Flyway. La validación en sí ya existe y corre en el CI
+-`test_el_mapeo_calza_con_el_esquema_que_hay_en_la_base` compara tabla por tabla y columna por
+columna contra el `Inspector` de una base real, que es lo que hace `ddl-auto=validate`. Lo que falta
+es que el esquema contra el que valida venga de Flyway y no del propio mapeo; queda anotado en la
+[§7](#7--lo-que-queda-abierto).
 
 ---
 

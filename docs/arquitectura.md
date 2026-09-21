@@ -1,72 +1,96 @@
 # Arquitectura · Gastonomo
 
-**Laboratorio 1 · EIF509 · II Ciclo 2026**
+**EIF509 · II Ciclo 2026 · actualizado en el Laboratorio 4**
+
+> Este documento se actualiza en cada entrega. Las secciones § 1 y § 2 reflejan el código de hoy;
+> la § 3 conserva el modelo de dominio del Laboratorio 1 con las notas de lo que cambió después, y
+> la § 4 el despliegue.
 
 ---
 
 ## 1 · Capas y su interacción
 
-Este diagrama refleja **los archivos entregados** para el Laboratorio 1. Se sigue la regla de: **presentación → negocio → datos, nunca al revés**. Cada capa conoce únicamente a la
-que tiene debajo.
+Se sigue la regla de **presentación → negocio → datos, nunca al revés**. Cada capa conoce
+únicamente a la que tiene debajo.
 
 ```mermaid
 flowchart TD
-    Cliente["Cliente HTTP<br/><i>Swagger UI · curl · React (más adelante)</i>"]
+    Cliente["Cliente HTTP<br/><i>React SPA · Swagger UI · curl</i>"]
 
     subgraph PRES["PRESENTACIÓN · src/app/presentation/"]
         direction TB
-        RSalud["routers/salud.py<br/><i>GET /api/salud</i>"]
-        RCat["routers/categorias.py<br/><i>POST y GET /api/categorias</i>"]
-        Schemas["schemas.py<br/><i>DTOs de entrada y salida</i>"]
-        Deps["dependencies.py<br/><i>arma el servicio con su repositorio</i>"]
+        Routers["routers/<br/><i>salud · categorias · comercios · metodos_pago ·<br/>presupuestos · reglas_categorizacion · compras</i>"]
+        Schemas["schemas.py<br/><i>DTOs: validación de forma con Field(...)</i>"]
+        Deps["dependencies.py<br/><i>arma cada servicio con sus repositorios</i>"]
         Errores["main.py · manejadores<br/><i>error de negocio → código HTTP</i>"]
     end
 
     subgraph NEG["NEGOCIO · src/app/business/"]
         direction TB
-        SCat["services/categoria_service.py<br/><i>reglas, validaciones y transacción</i>"]
-        Comando["CrearCategoriaComando<br/><i>orden que recibe el negocio</i>"]
-        ErrNeg["errors.py<br/><i>violaciones del dominio</i>"]
+        Concil["conciliacion_service.py<br/><i>Proceso 2 · transacción de 5 tablas</i>"]
+        Registro["registrar_compra_service.py<br/><i>Proceso 1 · captura manual</i>"]
+        Reglas["categoria · comercio · metodo_pago ·<br/>presupuesto · regla_categorizacion<br/><i>reglas, cálculos y validaciones</i>"]
+        Lectura["compra_service.py<br/><i>solo lectura</i>"]
+        Externos["tipo_cambio_service.py<br/><i>habla con el BCCR, con respaldo en Hacienda</i>"]
+        Comandos["CrearCategoriaComando · CrearMetodoPagoComando ·<br/>CrearReglaComando<br/><i>órdenes que recibe el negocio</i>"]
+        Parsers["parsers/<br/><i>comprobante_bac</i>"]
+        ErrNeg["errors.py<br/><i>violaciones del dominio, sin HTTP</i>"]
+        Bitacora["bitacora_service.py<br/><i>trazabilidad, fuera de la transacción</i>"]
     end
 
     subgraph DATOS["DATOS · src/app/data/"]
         direction TB
-        RepoBase["repositories/base_repository.py<br/><i>CRUD genérico</i>"]
-        RepoCat["repositories/categoria_repository.py<br/><i>consultas de categoría</i>"]
-        RepoUsr["repositories/usuario_repository.py<br/><i>consultas del titular</i>"]
-        Modelos["models/<br/>usuario.py · categoria.py · base.py · enums.py"]
+        RepoBase["repositories/base_repository.py<br/><i>CRUD genérico tipado</i>"]
+        Repos["14 repositorios específicos<br/><i>el único lugar que consulta datos</i>"]
+        RepoMongo["bitacora_repository.py<br/><i>no hereda: Mongo no tiene sesión</i>"]
+        Modelos["models/<br/><i>14 entidades mapeadas</i>"]
     end
 
     subgraph CONF["CONFIGURACIÓN · src/app/config/"]
         direction TB
-        Settings["settings.py<br/><i>nombre, versión, URL de la base</i>"]
-        DB["database.py<br/><i>motor, sesión y creación de tablas</i>"]
+        Settings["settings.py"]
+        DB["database.py<br/><i>motor y sesión</i>"]
+        HTTP["cliente_http.py"]
+        Mongo["cliente_mongo.py"]
     end
 
-    BD[("SQLite hoy<br/>PostgreSQL después")]
+    PG[("PostgreSQL<br/><i>SQLite en desarrollo</i>")]
+    MG[("MongoDB<br/><i>bitacora_compras</i>")]
 
-    Cliente -->|JSON| RSalud
-    Cliente -->|JSON| RCat
-    RCat --> Schemas
-    RCat --> Deps
-    Deps --> SCat
-    RCat --> Comando
-    Comando --> SCat
-    SCat --> ErrNeg
-    ErrNeg -.->|se traduce en| Errores
-    SCat --> RepoCat
-    SCat --> RepoUsr
-    RepoCat --> RepoBase
-    RepoUsr --> RepoBase
-    RepoCat --> Modelos
-    RepoUsr --> Modelos
+    Cliente -->|JSON| Routers
+    Routers --> Schemas
+    Routers --> Deps
+    Routers --> Comandos
+    Deps --> Concil
+    Deps --> Reglas
+    Deps --> Lectura
+    Comandos --> Reglas
+    Deps --> Registro
+    Registro --> Reglas
+    Registro --> Repos
+    Concil --> Reglas
+    Concil --> Parsers
+    Concil --> Externos
+    Concil --> Bitacora
+    Reglas --> ErrNeg
+    Externos --> ErrNeg
+    ErrNeg -.->|único punto de traducción| Errores
+    Concil --> Repos
+    Reglas --> Repos
+    Lectura --> Repos
+    Bitacora --> RepoMongo
+    Repos --> RepoBase
+    Repos --> Modelos
     RepoBase --> Modelos
-    Modelos --> BD
+    Modelos --> PG
+    RepoMongo --> MG
 
-    RSalud -.-> Settings
-    Settings -.-> DB
     Deps -.-> DB
-    DB --> BD
+    Deps -.-> HTTP
+    Deps -.-> Mongo
+    Settings -.-> DB
+    DB --> PG
+    Mongo --> MG
 
     classDef pres fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef neg fill:#DCFCE7,stroke:#16A34A,color:#14532D
@@ -74,11 +98,11 @@ flowchart TD
     classDef conf fill:#F3E8FF,stroke:#9333EA,color:#581C87
     classDef ext fill:#F1F5F9,stroke:#64748B,color:#0F172A
 
-    class RSalud,RCat,Schemas,Deps,Errores pres
-    class SCat,Comando,ErrNeg neg
-    class RepoBase,RepoCat,RepoUsr,Modelos dat
-    class Settings,DB conf
-    class Cliente,BD ext
+    class Routers,Schemas,Deps,Errores pres
+    class Concil,Registro,Reglas,Lectura,Externos,Comandos,Parsers,ErrNeg,Bitacora neg
+    class RepoBase,Repos,RepoMongo,Modelos dat
+    class Settings,DB,HTTP,Mongo conf
+    class Cliente,PG,MG ext
 ```
 
 ### Qué hace cada capa
@@ -99,16 +123,19 @@ decisiones explícitas del código:
    Si recibiera modelos de FastAPI, el negocio quedaría amarrado a la forma de la API y no se
    podría reutilizar desde un script o una tarea programada.
 2. **El repositorio nunca confirma.** Solo agrega y consulta; el `commit` lo hace el servicio, que
-   es el único que sabe si la operación de negocio completa terminó bien. Ese límite es el que más
-   adelante sostiene el proceso de conciliación, que escribe en cinco tablas.
+   es el único que sabe si la operación de negocio completa terminó bien. Ese límite es el que
+   sostiene el proceso de conciliación, que escribe en cinco tablas -ver § 2.2.
 3. **Los errores de negocio son excepciones propias** (`business/errors.py`), sin ninguna
    referencia a HTTP. `main.py` es el único archivo autorizado a mapearlos a códigos de respuesta.
+
+Las reglas de cada proceso, los patrones de diseño aplicados y lo que queda abierto están en el
+documento de la [Capa de negocio](negocio.md).
 
 ---
 
 ## 2 · Recorrido de una petición
 
-Ejemplo real y verificable hoy: crear una categoría colgada de otra.
+### 2.1 · Un caso simple: crear una categoría colgada de otra
 
 ```mermaid
 sequenceDiagram
@@ -143,14 +170,65 @@ sequenceDiagram
     Note over S,R: Si el nombre está repetido, el servicio lanza<br/>ReglaDeNegocioViolada y main.py la traduce a 409.
 ```
 
+### 2.2 · El caso transaccional: conciliar un comprobante
+
+El Proceso 2 del dominio. Escribe en **cinco tablas** y todas tienen que ocurrir o ninguna: el
+único `commit` está al final, y ningún repositorio confirma por su cuenta. Las reglas completas
+están en [Capa de negocio § 2.1](negocio.md#21--proceso-2--ingesta-y-conciliación-de-un-comprobante-transaccional).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CC as CuentaCorreoService<br/>(negocio)
+    participant S as ConciliacionService<br/>(negocio)
+    participant MP as MetodoPagoRepository
+    participant CO as ComercioService
+    participant RG as ReglaCategorizacionRepository
+    participant PR as PresupuestoRepository
+    participant BD as PostgreSQL
+    participant MG as MongoDB
+
+    CC->>S: conciliar(usuario, comprobante, parseado)
+    S->>S: ¿es compra, confiable y completa?
+    Note over S: Si no, devuelve None: queda para<br/>revisión manual. No se inventa nada.
+
+    S->>MP: buscar_por_ultimos_cuatro
+    MP->>BD: SELECT
+    Note over S,MP: Sin coincidencia no se crea ninguno:<br/>la compra queda requiere_revision.
+
+    S->>CO: resolver_o_crear(comercio)
+    CO->>BD: SELECT / INSERT + COMMIT propio
+    Note over CO: Catálogo compartido: confirma aparte.<br/>Es un paso previo, no parte de la transacción.
+
+    S->>RG: listar_activas_ordenadas
+    RG->>BD: SELECT
+    S->>S: cadena de categorización:<br/>regla → sugerencia del comercio → ninguna
+
+    S->>BD: INSERT compra (flush, sin confirmar)
+    S->>BD: INSERT linea_compra
+    S->>BD: UPDATE regla.veces_aplicada
+    S->>PR: buscar(categoría, año, mes)
+    S->>BD: UPDATE presupuesto.monto_consumido
+    S->>BD: UPDATE comprobante.compra_id
+
+    S->>BD: COMMIT
+    Note over S,BD: Las cinco escrituras, o ninguna.<br/>Cualquier excepción antes de acá revierte todo.
+
+    S->>MG: registrar_evento × N
+    Note over S,MG: Después del commit y nunca bloqueante:<br/>la bitácora explica, no decide.
+
+    S-->>CC: ResultadoConciliacion
+```
+
 ---
 
 ## 3 · Modelo de dominio
 
-Las **once entidades** de la propuesta y sus relaciones. Este es el modelo objetivo del curso
-completo, no el del código entregado: en el Laboratorio 1 solo están implementadas `USUARIO` y
-`CATEGORIA` (marcadas en la tabla de abajo). La justificación de cada entidad está en
-[`docs/propuesta-dominio.md`](propuesta-dominio.md).
+Las **once entidades** de la propuesta y sus relaciones, tal como se dibujaron en el Laboratorio 1.
+Se conserva el diagrama original y la tabla de abajo dice en qué entrega se implementó cada parte;
+el modelo real de hoy tiene 14 entidades y está en el
+[Modelo de datos § 2.1](modelo-de-datos.md). La justificación de cada entidad está en la
+[Propuesta de dominio](propuesta-dominio.md).
 
 ```mermaid
 erDiagram
@@ -297,6 +375,8 @@ erDiagram
 |---|---|
 | `USUARIO`, `CATEGORIA` | Implementadas como clases en el Laboratorio 1 |
 | Las once tablas del esquema, más `CATEGORIA_ESTANDAR` | **Creadas en PostgreSQL en el Laboratorio 2** |
+| Las 14 entidades, con sus relaciones y su carga diferida razonada | **Mapeadas con SQLAlchemy en el Laboratorio 3** |
+| `COMPRA`, `LINEA_COMPRA`, `PRESUPUESTO`, `REGLA_CATEGORIZACION`, `COMPROBANTE` | **Escritas dentro de una sola transacción en el Laboratorio 4** |
 
 > **Actualizado en el Laboratorio 2.** El diagrama de arriba es el del Laboratorio 1. El modelo
 > implementado de verdad agrega una entidad —`CATEGORIA_ESTANDAR`, la taxonomía global que siembra
@@ -317,12 +397,12 @@ Dos notas de modelado que valen la pena:
 
 ---
 
-## 4 · Despliegue previsto
+## 4 · Despliegue
 
 ```mermaid
 flowchart LR
-    subgraph Nav["Navegador"]
-        React["React SPA<br/><i>pendiente</i>"]
+    subgraph Nav["Cliente"]
+        React["Cliente HTTP<br/><i>Swagger UI · curl</i>"]
     end
 
     subgraph Servidor["Servidor de aplicación"]
@@ -330,28 +410,27 @@ flowchart LR
     end
 
     subgraph Datos["Almacenamiento"]
-        SQLite[("SQLite local<br/><i>usa la app hoy</i>")]
-        PG[("PostgreSQL<br/><i>esquema entregado ✓ · Lab 2</i>")]
-        Mongo[("MongoDB<br/><i>bitacora_compras ✓ · Lab 2</i>")]
+        SQLite[("SQLite local<br/><i>solo desarrollo</i>")]
+        PG[("PostgreSQL<br/><i>conectado ✓</i>")]
+        Mongo[("MongoDB<br/><i>bitacora_compras ✓</i>")]
     end
 
     subgraph Ext["Externos"]
-        Correo["Buzones vinculados<br/><i>pendiente</i>"]
-        BCCR["Tipos de cambio BCCR<br/><i>pendiente</i>"]
+        Correo["Buzones vinculados<br/><i>Outlook · Gmail ✓</i>"]
+        BCCR["Tipos de cambio<br/><i>BCCR · Hacienda ✓</i>"]
     end
 
     React -->|REST · JSON| Uvicorn
-    React -->|WebSocket · gasto en vivo| Uvicorn
-    Uvicorn --> SQLite
-    Uvicorn -.->|reemplaza a SQLite| PG
-    Uvicorn -.->|trazabilidad de la compra| Mongo
+    Uvicorn -->|desarrollo| SQLite
+    Uvicorn -->|producción| PG
+    Uvicorn -->|trazabilidad de la compra| Mongo
     Correo -->|lee, extrae y descarta| Uvicorn
-    BCCR -->|carga diaria de tasas| Uvicorn
+    BCCR -->|tasa de la fecha| Uvicorn
 
     classDef hecho fill:#DCFCE7,stroke:#16A34A,color:#14532D
     classDef futuro fill:#F1F5F9,stroke:#94A3B8,color:#334155
-    class Uvicorn,SQLite,PG,Mongo hecho
-    class React,Correo,BCCR futuro
+    class Uvicorn,PG,Mongo,React,Correo,BCCR hecho
+    class SQLite futuro
 ```
 
 > **Una sola base de datos.** El sistema no almacena los comprobantes: lee cada correo, le extrae
@@ -364,13 +443,13 @@ flowchart LR
 > almacenarse. Ver [ADR-002](adr/ADR-002-subdominio-documental-en-mongodb.md) y el
 > [Modelo de datos](modelo-de-datos.md).
 
-Las cajas verdes son lo construido hasta el Laboratorio 2: la aplicación FastAPI levantando y
-guardando contra SQLite, y las dos bases reales con su esquema, sus restricciones y sus datos de
-ejemplo, levantadas con `docker compose up -d`. Las flechas punteadas hacia PostgreSQL y MongoDB
-marcaban lo que faltaba entonces: **conectar la aplicación a ellas**.
+`docker compose up -d` levanta PostgreSQL, el contenedor de Flyway que aplica las migraciones y
+los datos de ejemplo, y MongoDB con su colección ya validada. La aplicación corre aparte y se
+conecta a las dos: `GASTONOMO_URL_BASE_DATOS` apunta el ORM a PostgreSQL en lugar de SQLite, y
+`BitacoraComprasService` escribe la trazabilidad en MongoDB desde la conciliación real.
 
-> **Revisado en el Laboratorio 3.** Las dos conexiones ya existen. `GASTONOMO_URL_BASE_DATOS`
-> apunta el ORM al PostgreSQL del `docker compose` en lugar de SQLite, y `BitacoraComprasService`
-> escribe la trazabilidad en MongoDB desde la conciliación real. Cómo está construida esa capa
-> -mapeo, repositorios, consultas de negocio y el N+1 que produce hoy la lista de compras- está en
-> [Persistencia](persistencia.md).
+> **Una salvedad de esquema.** La aplicación en ejecución crea sus tablas con
+> `Base.metadata.create_all()`, no con Flyway. Las migraciones de
+> [`db/postgres/migrations/`](../db/postgres/migrations/) son la fuente de verdad documentada del
+> modelo, pero todavía no son la que la aplicación aplica al arrancar. Está declarado como
+> pendiente en [Capa de negocio § 8](negocio.md#8--lo-que-queda-abierto).

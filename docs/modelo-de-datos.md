@@ -5,6 +5,14 @@
 Jose Alexis Solís Carvajal · 1-1623-0238
 Luis Antonio Montes de Oca Ruiz · 1-1800-0270
 
+> **Revisado en el Laboratorio 4.** Este documento describe el esquema tal como lo entregó el
+> Laboratorio 2: doce tablas, migraciones `V1`–`V5`. Al implementar la capa de negocio aparecieron
+> dos diferencias reales entre ese modelo y lo que el dominio necesita, y se corrigieron con
+> **`V6` y `V7`** -que además traen a Flyway los cambios de esquema que hasta entonces solo existían
+> porque la aplicación corría `create_all()` al arrancar. El esquema queda en **catorce tablas**.
+> Cada migración explica qué corrige y por qué; el resumen está en
+> [Capa de negocio § 8](negocio.md#8--lo-que-queda-abierto).
+
 ---
 
 ## 1 · Qué vive en cada base
@@ -452,7 +460,7 @@ Qué hace, en orden:
 1. Arranca **PostgreSQL 17** y espera a que su *healthcheck* confirme que acepta conexiones. Sin esa
    espera, Flyway intentaría migrar contra una base todavía inicializándose y fallaría de forma
    intermitente.
-2. **Flyway 11** aplica `V1` … `V5` y luego el callback de datos de ejemplo. Termina y se apaga: es
+2. **Flyway 11** aplica `V1` … `V7` y luego el callback de datos de ejemplo. Termina y se apaga: es
    una tarea, no un servicio. Verla como `Exited (0)` es el resultado correcto.
 3. Arranca **MongoDB 8** y, la primera vez, ejecuta los scripts de `db/mongo/init`: crean la
    colección con su validador, sus índices y sus documentos de ejemplo.
@@ -581,7 +589,6 @@ docker compose exec -T mongo mongosh --quiet -u gastonomo -p gastonomo_local --a
 
 | Documento | Qué contiene |
 |---|---|
-| [Persistencia](persistencia.md) | **Laboratorio 3.** Cómo la aplicación habla con este esquema: mapeo objeto-relacional, repositorios, consultas de negocio con su SQL generado y la evidencia del N+1. |
 | [Propuesta de Dominio](propuesta-dominio.md) | El negocio, los actores, las entidades y los dos procesos con sus reglas, cálculos y validaciones. |
 | [Arquitectura](arquitectura.md) | Capas, recorrido de una petición y despliegue previsto. |
 | [ADR-001 · Elección del stack](adr/ADR-001-eleccion-del-stack.md) | Por qué Python + FastAPI + PostgreSQL + React. |
