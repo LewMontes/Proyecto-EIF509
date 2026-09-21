@@ -1,0 +1,16 @@
+Outlook
+Notificaci?n de transacci?n WALMART SAN SEBASTIAN 30-08-2026 - 13:27
+From Notificaci?n BAC <NotificacionBAC@baccredomatic.cr>
+Date Sun 2026-08-30 13:27
+To PERSONA DE PRUEBA <persona.de.prueba@ejemplo.cr>
+Hola PERSONA DE PRUEBA
+A continuaci?n le detallamos la transacci?n realizada:
+Comercio: WALMART SAN SEBASTIAN
+Ciudad y pa?s: SAN JOSE, Costa Rica
+Fecha: Ago 30, 2026 , 13:27
+AMEX: ***********4321
+Autorizaci?n: 100200
+Referencia: 99887766
+Tipo de Transacci?n: COMPRA
+Monto: CRC 7,870.00
+8/31/26, 8:27 AM Mail - Persona De Prueba - Outlook
