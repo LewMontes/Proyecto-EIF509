@@ -37,6 +37,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    # mide la cobertura de la capa de negocio. El CI falla si baja del 70%
+    # -ver el paso "Correr las pruebas" en .github/workflows/ci.yml.
+    "pytest-cov>=5.0",
     "ruff>=0.6",
     # levanta un PostgreSQL real en Docker para las pruebas de integracion
     # (tests/integracion/). Las pruebas normales no lo necesitan: se saltan
@@ -59,4 +62,27 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 markers = [
     "integracion: corre contra un PostgreSQL real levantado con Testcontainers (necesita Docker)",
+]
+
+# Cobertura de la capa de negocio. Se mide solo `src/app/business` -no todo
+# `src/app`- porque es donde viven las reglas del dominio: que un router o un
+# modelo de SQLAlchemy esten cubiertos no dice nada sobre si una regla de
+# negocio tiene prueba, y promediarlos esconderia justo lo que importa.
+[tool.coverage.run]
+source = ["src/app/business"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+# El minimo que pide el laboratorio es 70%. Se deja ahi y no en el valor real
+# para que agregar una rama sin prueba avise, sin que cada linea nueva rompa
+# el CI por un punto decimal.
+fail_under = 70
+exclude_also = [
+    # Los bloques de `typing.TYPE_CHECKING` no se ejecutan nunca en tiempo de
+    # corrida: existen solo para que el verificador de tipos resuelva los
+    # imports circulares de los `relationship()`.
+    "if TYPE_CHECKING:",
+    # Un Protocol solo declara la firma; su cuerpo es `...`.
+    "class .*\\(Protocol\\):",
 ]

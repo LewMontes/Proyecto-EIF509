@@ -47,12 +47,18 @@ jobs:                         # Un workflow tiene uno o más "jobs" (trabajos)
           ruff check .
           ruff format --check .
 
-      # Paso 5: correr las pruebas
+      # Paso 5: correr las pruebas, midiendo la cobertura de la capa de negocio
       #   Si algo falla, el workflow se marca en ROJO. Si todo pasa, en VERDE.
       #   "-m 'not integracion'": las pruebas de integración van aparte, en el
       #   paso siguiente, porque tardan más (levantan un contenedor).
-      - name: Correr las pruebas
-        run: pytest -v -m "not integracion"
+      #
+      #   "--cov" mide solo src/app/business -ver [tool.coverage.run] en
+      #   pyproject.toml- y el umbral de 70% vive en [tool.coverage.report]
+      #   (fail_under). Si la cobertura baja de ahí, este paso falla igual que
+      #   si se rompiera una prueba: el reporte no es informativo, es una
+      #   condición de la entrega.
+      - name: Correr las pruebas (con cobertura de la capa de negocio)
+        run: pytest -v -m "not integracion" --cov --cov-report=term-missing
 
       # Paso 5b: las pruebas de integración contra un PostgreSQL de verdad
       #   Testcontainers levanta un postgres:16-alpine en Docker, corre las
