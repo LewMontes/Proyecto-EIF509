@@ -12,7 +12,7 @@ Universidad Nacional · Escuela de Informática y Computación
 |---|---------------------------------------------------------|
 | **Integrantes** | Jose Alexis Solís Carvajal · 1-1623-0238          |
 |  |    Luis Antonio Montes de Oca Ruiz · 1-1800-0270     |
-| **Entrega actual** | Laboratorio 3 — Persistencia con ORM y repositorios |
+| **Entrega actual** | Laboratorio 4 — La capa de negocio completa |
 
 ---
 
@@ -33,8 +33,29 @@ Universidad Nacional · Escuela de Informática y Computación
 
 ## Qué incluye este laboratorio
 
-El **Laboratorio 3** entrega **la capa de persistencia**: cómo la aplicación habla con el esquema
-que entregó el Laboratorio 2, mediante ORM y el patrón Repository.
+El **Laboratorio 4** entrega **la capa de negocio completa**: los dos procesos del dominio como
+servicios con reglas, la garantía transaccional del proceso multi-paso, la frontera de DTOs y los
+patrones de diseño aplicados.
+
+| Entregable | Dónde está |
+|---|---|
+| Proceso 1 · registro manual de una compra con desglose por renglón | [`registrar_compra_service.py`](src/app/business/services/registrar_compra_service.py) · `POST /api/compras` |
+| Proceso 2 · conciliación de un comprobante, en una sola transacción de cinco tablas | [`conciliacion_service.py`](src/app/business/services/conciliacion_service.py) |
+| Excepciones propias del dominio, sin ninguna referencia a HTTP | [`errors.py`](src/app/business/errors.py) · traducidas solo en [`main.py`](src/app/main.py) |
+| Prueba de *rollback*: el fallo se provoca **dentro** del servicio, contra PostgreSQL real | [`test_rollback_conciliacion.py`](tests/integracion/test_rollback_conciliacion.py) |
+| Frontera DTO: comandos de entrada y resultados de salida, con mapeo manual | [`schemas.py`](src/app/presentation/schemas.py) · las dataclasses de `business/` |
+| Dos patrones de diseño, con la señal que justificó cada uno | [Capa de negocio §6](docs/negocio.md#6--patrones-de-diseño-aplicados) |
+| 122 pruebas unitarias de las reglas, con cobertura medida en el CI (93 %, umbral 70 %) | [`tests/`](tests/) |
+| Migraciones `V6` y `V7`: los cambios de esquema que exige la capa de negocio | [`db/postgres/migrations/`](db/postgres/migrations/) |
+| Documento técnico de la capa | [Capa de negocio](docs/negocio.md) |
+
+> **Lo que queda abierto** está declarado, no escondido, en
+> [Capa de negocio §8](docs/negocio.md#8--lo-que-queda-abierto). El principal: el mapeo todavía no
+> conoce cuatro columnas obligatorias del esquema, que es la otra mitad de la observación del
+> Laboratorio 3.
+
+El **Laboratorio 3**, que sigue en el repositorio, entregó **la capa de persistencia**: cómo la
+aplicación habla con el esquema que entregó el Laboratorio 2, mediante ORM y el patrón Repository.
 
 | Entregable | Dónde está |
 |---|---|
@@ -42,13 +63,8 @@ que entregó el Laboratorio 2, mediante ORM y el patrón Repository.
 | Repositorio base genérico (`BaseRepository[TEntidad]`), 14 por entidad, más el del subdominio de MongoDB | [`src/app/data/repositories/`](src/app/data/repositories/) · [Persistencia §3](docs/persistencia.md#3--repositorios-con-generalización) |
 | 4 consultas de negocio —2 estáticas y 2 dinámicas, una de ellas agregada— con el SQL que el ORM genera, documentado | [Persistencia §4](docs/persistencia.md#4--consultas-de-negocio) |
 | Problema N+1 en la lista de compras: medido y corregido. **De 201 consultas a 2**, con pruebas que lo fijan | [Persistencia §5](docs/persistencia.md#5--el-problema-n1) · [`tests/test_n_mas_1.py`](tests/test_n_mas_1.py) |
-| 10 pruebas de integración contra un PostgreSQL 16 real (Testcontainers), en verde en el CI | [`tests/integracion/`](tests/integracion/) · [Persistencia §6](docs/persistencia.md#6--cómo-se-prueba) |
+| 14 pruebas de integración contra un PostgreSQL 16 real (Testcontainers), en verde en el CI | [`tests/integracion/`](tests/integracion/) · [Persistencia §6](docs/persistencia.md#6--cómo-se-prueba) |
 | Documento técnico de la capa | [Persistencia](docs/persistencia.md) |
-
-> **Lo único que queda abierto** —y está declarado, no escondido— es que la validación del mapeo
-> corra contra el esquema que migra Flyway y no contra el que crea el propio mapeo. La validación en
-> sí ya existe y corre en el CI; el detalle está en
-> [Persistencia §7](docs/persistencia.md#7--lo-que-queda-abierto).
 
 El **Laboratorio 2**, que sigue en el repositorio, entregó **la capa de datos**, con persistencia
 políglota:
@@ -238,7 +254,7 @@ ruff check . && ruff format --check .
 Son los mismos comandos que ejecuta la integración continua. **40 pruebas** corren contra una base
 SQLite **en memoria**, así que no tocan ningún archivo ni necesitan infraestructura.
 
-Aparte están las **10 pruebas de integración**, que levantan un PostgreSQL 16 real en Docker con
+Aparte están las **14 pruebas de integración**, que levantan un PostgreSQL 16 real en Docker con
 Testcontainers y lo apagan al terminar:
 
 ```bash
@@ -315,6 +331,7 @@ Tres decisiones sostienen la separación, ya que Python no la impone por sí sol
 
 | Documento | Qué contiene |
 |---|---|
+| [Capa de negocio](docs/negocio.md) | **Laboratorio 4.** Los dos procesos como servicios con sus reglas, la transacción de cinco tablas, la frontera de DTOs, los dos patrones de diseño con la señal que los justificó, y lo que queda abierto. |
 | [Persistencia](docs/persistencia.md) | **Laboratorio 3.** El mapeo objeto-relacional, los repositorios con generalización, las consultas de negocio con su SQL generado, la evidencia del N+1 y lo que queda abierto. |
 | [Modelo de datos](docs/modelo-de-datos.md) | **Laboratorio 2.** El esquema relacional, su normalización, sus restricciones e índices justificados, y el subdominio de MongoDB con su justificación completa. |
 | [Propuesta de Dominio](docs/propuesta-dominio.md) | El negocio, los actores, las entidades y los 2 procesos con sus reglas, cálculos y validaciones. |
@@ -332,8 +349,9 @@ sobre `main` y `master`. En una máquina limpia:
 
 1. Instala el proyecto y sus dependencias de desarrollo.
 2. Revisa el código con `ruff check` y `ruff format --check`.
-3. Corre las 40 pruebas rápidas (`pytest -m "not integracion"`).
-4. Corre las **10 pruebas de integración contra un PostgreSQL real**: Testcontainers levanta el
+3. Corre las 189 pruebas rápidas midiendo la cobertura de la capa de negocio
+   (`pytest -m "not integracion" --cov`), con umbral del 70 %: si baja de ahí, el paso falla.
+4. Corre las **14 pruebas de integración contra un PostgreSQL real**: Testcontainers levanta el
    contenedor dentro del propio runner, así que no hace falta declarar ningún `services:`.
 5. **Levanta el servidor de verdad** con uvicorn y confirma que `/api/salud` responde.
 
