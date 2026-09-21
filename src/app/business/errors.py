@@ -1,22 +1,32 @@
-"""Errores de negocio.
+"""Errores del dominio.
 
-Son distintos de los errores HTTP a proposito: la capa de negocio no sabe que
-existe HTTP. Es la capa de presentacion la que traduce cada uno de estos a su
-codigo de respuesta correspondiente.
+Ninguno menciona HTTP a proposito: `main.py` es el unico archivo autorizado a
+traducirlos a codigos de respuesta. Asi el mismo servicio se puede llamar desde
+un script o una tarea programada sin arrastrar el protocolo.
 """
 
 
 class ErrorDeNegocio(Exception):
-    """Base de todas las violaciones de reglas del dominio."""
+    """Raiz de todos los errores del dominio."""
 
 
-class ReglaDeNegocioViolada(ErrorDeNegocio):
-    """Se intento algo que el negocio no permite."""
-
-
-class ValidacionFallida(ErrorDeNegocio):
-    """Los datos no cumplen una condicion necesaria para continuar."""
+class DatosInvalidos(ErrorDeNegocio):
+    """El dato entra con la forma correcta pero no cumple una regla del dominio."""
 
 
 class RecursoNoEncontrado(ErrorDeNegocio):
-    """Se referencio una entidad que no existe o no pertenece al usuario."""
+    """Se referencio algo que no existe o que no pertenece al titular."""
+
+
+class ReglaDeNegocioViolada(ErrorDeNegocio):
+    """La operacion choca con el estado actual del sistema."""
+
+
+class ErrorDeProveedorExterno(ErrorDeNegocio):
+    """El Banco Central rechazo la solicitud del tipo de cambio, o no respondio.
+
+    No es un error de nuestras reglas: el dato pedido era correcto, pero el
+    proveedor -el servicio esta caido, la red fallo- no lo pudo resolver. Se
+    distingue del resto para que `main.py` la traduzca a 502 en vez de a un
+    4xx, que sugeriria que el cliente se equivoco.
+    """
