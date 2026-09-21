@@ -225,7 +225,7 @@ ON CONFLICT DO NOTHING;
 --  sistema lo lee, le extrae los cuatro campos que necesita y lo descarta.
 -- ----------------------------------------------------------------------------
 INSERT INTO comprobante (id, usuario_id, cuenta_correo_id, compra_id, mensaje_id, remitente,
-                         recibido_en, estado, confianza_parseo, intentos_procesamiento, motivo_fallo) VALUES
+                         recibido_en, estado, confianza, intentos_procesamiento, motivo_fallo) VALUES
     ( 1, 1, 1,    1, 'BAC-2026-08-03-0001',    'notificaciones@baccredomatic.cr', '2026-08-03 14:22:00-06', 'PROCESADO',       1.000, 1, NULL),
     ( 2, 1, 1,    3, 'SPOT-2026-08-05-77120',  'no-reply@spotify.com',            '2026-08-05 02:11:00-06', 'PROCESADO',       0.950, 1, NULL),
     ( 3, 1, 1,    4, 'BAC-2026-08-10-0442',    'notificaciones@baccredomatic.cr', '2026-08-10 17:48:00-06', 'PROCESADO',       1.000, 1, NULL),
