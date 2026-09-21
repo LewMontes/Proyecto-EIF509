@@ -470,6 +470,97 @@ class ReglaCategorizacionResponse(BaseModel):
     veces_aplicada: int
 
 
+class LineaDeCompraRequest(BaseModel):
+    """Un renglón del desglose, en el cuerpo de POST /api/compras.
+
+    Solo valida la forma: que la cantidad sea positiva y el precio no
+    negativo. Que el descuento no supere el monto del renglón, o que la
+    categoría sea hoja y del titular, son preguntas del negocio y las
+    responde `RegistrarCompraService`.
+    """
+
+    descripcion: str = Field(min_length=1, max_length=255, examples=["Leche 1L"])
+    # < 10**9 y < 10**12: lo que de verdad soportan las columnas
+    # Numeric(12,3) y Numeric(14,2). Sin el tope, un valor con más dígitos
+    # pasa la validación y revienta en el INSERT con un 500 crudo.
+    cantidad: Decimal = Field(gt=0, lt=Decimal(10**9), examples=["2"])
+    precio_unitario: Decimal = Field(ge=0, lt=Decimal(10**12), examples=["1250.00"])
+    descuento: Decimal = Field(default=Decimal("0"), ge=0, lt=Decimal(10**12))
+    exento_impuesto: bool = False
+    # `None` significa "que el sistema sugiera", no "sin categoría": la cadena
+    # de categorización la resuelve, y si tampoco puede, la compra no se
+    # registra.
+    categoria_id: int | None = Field(default=None, gt=0, le=_ID_MAXIMO)
+
+
+class RegistrarCompraRequest(BaseModel):
+    """Cuerpo de POST /api/compras -el Proceso 1 del dominio.
+
+    Es la captura manual, para una compra que no llegó por correo. A
+    diferencia de la ingesta, acá sí hay desglose: varios renglones, cada uno
+    con su propia categoría y su propio tratamiento de impuesto.
+    """
+
+    usuario_id: int = Field(gt=0, le=_ID_MAXIMO)
+    comercio_id: int = Field(gt=0, le=_ID_MAXIMO)
+    fecha: date
+    # Un tope alto pero finito: un tiquete de supermercado rara vez pasa de
+    # 100 renglones, y sin límite una sola petición podría escribir miles de
+    # filas dentro de una transacción.
+    lineas: list[LineaDeCompraRequest] = Field(min_length=1, max_length=100)
+    moneda: Moneda = Moneda.CRC
+    metodo_pago_id: int | None = Field(default=None, gt=0, le=_ID_MAXIMO)
+    descripcion: str | None = Field(default=None, max_length=255)
+    descuento: Decimal = Field(default=Decimal("0"), ge=0, lt=Decimal(10**12))
+    # El total impreso en el recibo, si el titular lo transcribió. No se usa
+    # como total: se compara contra el calculado, y una diferencia de más de
+    # un colón rechaza la compra.
+    total_declarado: Decimal | None = Field(default=None, ge=0, lt=Decimal(10**12))
+    # Obligatorio cuando la moneda no es la base: la tasa de la fecha de la
+    # compra, que no tiene por qué ser la de hoy.
+    tipo_cambio_aplicado: Decimal | None = Field(default=None, gt=0, lt=Decimal(10**6))
+
+
+class LineaCompraResponse(BaseModel):
+    """Un renglón ya calculado y clasificado."""
+
+    linea_id: int
+    descripcion: str
+    cantidad: Decimal
+    precio_unitario: Decimal
+    descuento: Decimal
+    exento_impuesto: bool
+    subtotal: Decimal
+    impuesto: Decimal
+    categoria_id: int
+    categoria_nombre: str
+    categorizada_automaticamente: bool
+
+
+class CompraRegistradaResponse(BaseModel):
+    """La compra recién registrada, con su desglose y sus totales calculados.
+
+    `presupuestos_alertados` trae los presupuestos que cruzaron su umbral con
+    esta compra -para que la pantalla pueda avisarlo en el momento, sin tener
+    que volver a consultar el estado de cada uno.
+    """
+
+    compra_id: int
+    fecha: date
+    comercio_nombre: str
+    metodo_pago_alias: str | None
+    moneda: Moneda
+    estado: EstadoCompra
+    subtotal: Decimal
+    descuento: Decimal
+    impuesto: Decimal
+    total: Decimal
+    tipo_cambio_aplicado: Decimal
+    total_moneda_base: Decimal
+    lineas: list[LineaCompraResponse]
+    presupuestos_alertados: list[int]
+
+
 class ResolverRevisionCompraRequest(BaseModel):
     """Cuerpo de POST /api/compras/{id}/resolver.
 

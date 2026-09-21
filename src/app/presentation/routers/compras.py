@@ -19,11 +19,25 @@ from fastapi import APIRouter, Query
 
 from app.business.errors import RecursoNoEncontrado
 from app.business.services.compra_service import CompraDetallada
-from app.presentation.dependencies import ServicioDeBitacora, ServicioDeCompras
+from app.business.services.registrar_compra_service import (
+    CompraRegistrada,
+    LineaDeCompraComando,
+    RegistrarCompraComando,
+)
+from app.presentation.dependencies import (
+    ServicioDeBitacora,
+    ServicioDeCompras,
+    ServicioDeConciliacion,
+    ServicioDeRegistroDeCompras,
+)
 from app.presentation.schemas import (
+    CompraRegistradaResponse,
     CompraResponse,
     EventoBitacoraResponse,
     GastoDeCategoriaResponse,
+    LineaCompraResponse,
+    RegistrarCompraRequest,
+    ResolverRevisionCompraRequest,
 )
 
 router = APIRouter(prefix="/api/compras", tags=["compras"])
@@ -50,6 +64,91 @@ def _respuesta(detalle: CompraDetallada) -> CompraResponse:
         origen=compra.origen,
         requiere_revision=compra.requiere_revision,
         creado_en=compra.creado_en,
+    )
+
+
+def _respuesta_registrada(registrada: CompraRegistrada) -> CompraRegistradaResponse:
+    """Mapeo manual del DTO del negocio al del contrato HTTP.
+
+    Explícito y no `model_validate` a propósito: es el punto donde se ve, de
+    un vistazo, que lo que sale del servicio ya es un DTO -ninguna entidad de
+    SQLAlchemy cruza esta función.
+    """
+    return CompraRegistradaResponse(
+        compra_id=registrada.compra_id,
+        fecha=registrada.fecha,
+        comercio_nombre=registrada.comercio_nombre,
+        metodo_pago_alias=registrada.metodo_pago_alias,
+        moneda=registrada.moneda,
+        estado=registrada.estado,
+        subtotal=registrada.subtotal,
+        descuento=registrada.descuento,
+        impuesto=registrada.impuesto,
+        total=registrada.total,
+        tipo_cambio_aplicado=registrada.tipo_cambio_aplicado,
+        total_moneda_base=registrada.total_moneda_base,
+        lineas=[
+            LineaCompraResponse(
+                linea_id=linea.linea_id,
+                descripcion=linea.descripcion,
+                cantidad=linea.cantidad,
+                precio_unitario=linea.precio_unitario,
+                descuento=linea.descuento,
+                exento_impuesto=linea.exento_impuesto,
+                subtotal=linea.subtotal,
+                impuesto=linea.impuesto,
+                categoria_id=linea.categoria_id,
+                categoria_nombre=linea.categoria_nombre,
+                categorizada_automaticamente=linea.categorizada_automaticamente,
+            )
+            for linea in registrada.lineas
+        ],
+        presupuestos_alertados=list(registrada.presupuestos_alertados),
+    )
+
+
+@router.post(
+    "",
+    response_model=CompraRegistradaResponse,
+    status_code=201,
+    summary="Registrar a mano una compra con su desglose por renglón",
+)
+def registrar(
+    peticion: RegistrarCompraRequest,
+    servicio: ServicioDeRegistroDeCompras,
+) -> CompraRegistradaResponse:
+    """El Proceso 1 del dominio: la compra que no llegó por correo.
+
+    El cuerpo trae el desglose completo; el servicio calcula subtotales,
+    impuesto y totales, categoriza los renglones que el titular dejó sin
+    categoría, e impacta el presupuesto de cada categoría afectada -todo en
+    una sola transacción.
+    """
+    return _respuesta_registrada(
+        servicio.registrar(
+            RegistrarCompraComando(
+                usuario_id=peticion.usuario_id,
+                comercio_id=peticion.comercio_id,
+                fecha=peticion.fecha,
+                lineas=tuple(
+                    LineaDeCompraComando(
+                        descripcion=linea.descripcion,
+                        cantidad=linea.cantidad,
+                        precio_unitario=linea.precio_unitario,
+                        descuento=linea.descuento,
+                        exento_impuesto=linea.exento_impuesto,
+                        categoria_id=linea.categoria_id,
+                    )
+                    for linea in peticion.lineas
+                ),
+                moneda=peticion.moneda,
+                metodo_pago_id=peticion.metodo_pago_id,
+                descripcion=peticion.descripcion,
+                descuento=peticion.descuento,
+                total_declarado=peticion.total_declarado,
+                tipo_cambio_aplicado=peticion.tipo_cambio_aplicado,
+            )
+        )
     )
 
 
@@ -118,6 +217,30 @@ def detalle(
     servicio: ServicioDeCompras,
     usuario_id: int = Query(gt=0, le=2_147_483_647),
 ) -> CompraResponse:
+    return _respuesta(servicio.obtener_detalle_del_titular(usuario_id, compra_id))
+
+
+@router.post(
+    "/{compra_id}/resolver",
+    response_model=CompraResponse,
+    summary="Corregir a mano el método de pago y/o la categoría de una compra",
+)
+def resolver(
+    compra_id: int,
+    peticion: ResolverRevisionCompraRequest,
+    servicio: ServicioDeCompras,
+    conciliacion: ServicioDeConciliacion,
+    usuario_id: int = Query(gt=0, le=2_147_483_647),
+) -> CompraResponse:
+    """La corrección manual de una compra que quedó `requiere_revision`.
+
+    Es el paso 4 del Proceso 1 del dominio aplicado a lo que entró por correo:
+    el titular confirma o corrige, y esa corrección es la que hace aprender al
+    sistema.
+    """
+    conciliacion.resolver_revision(
+        usuario_id, compra_id, peticion.metodo_pago_id, peticion.categoria_id
+    )
     return _respuesta(servicio.obtener_detalle_del_titular(usuario_id, compra_id))
 
 

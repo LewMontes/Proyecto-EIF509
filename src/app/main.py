@@ -9,10 +9,23 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.business.errors import RecursoNoEncontrado, ReglaDeNegocioViolada, ValidacionFallida
+from app.business.errors import (
+    DatosInvalidos,
+    ErrorDeProveedorExterno,
+    RecursoNoEncontrado,
+    ReglaDeNegocioViolada,
+)
 from app.config.database import crear_tablas, sembrar_categorias_estandar
 from app.config.settings import obtener_configuracion
-from app.presentation.routers import categorias, compras, salud
+from app.presentation.routers import (
+    categorias,
+    comercios,
+    compras,
+    metodos_pago,
+    presupuestos,
+    reglas_categorizacion,
+    salud,
+)
 
 
 @asynccontextmanager
@@ -49,6 +62,10 @@ def crear_app() -> FastAPI:
 
     app.include_router(salud.router)
     app.include_router(categorias.router)
+    app.include_router(comercios.router)
+    app.include_router(metodos_pago.router)
+    app.include_router(presupuestos.router)
+    app.include_router(reglas_categorizacion.router)
     app.include_router(compras.router)
 
     registrar_manejadores_de_error(app)
@@ -62,8 +79,8 @@ def registrar_manejadores_de_error(app: FastAPI) -> None:
     lugar del sistema al que se le permite saber que existen los codigos HTTP.
     """
 
-    @app.exception_handler(ValidacionFallida)
-    def _validacion(_: Request, error: ValidacionFallida) -> JSONResponse:
+    @app.exception_handler(DatosInvalidos)
+    def _datos_invalidos(_: Request, error: DatosInvalidos) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detalle": str(error)})
 
     @app.exception_handler(ReglaDeNegocioViolada)
@@ -73,6 +90,12 @@ def registrar_manejadores_de_error(app: FastAPI) -> None:
     @app.exception_handler(RecursoNoEncontrado)
     def _no_encontrado(_: Request, error: RecursoNoEncontrado) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detalle": str(error)})
+
+    @app.exception_handler(ErrorDeProveedorExterno)
+    def _proveedor_externo(_: Request, error: ErrorDeProveedorExterno) -> JSONResponse:
+        """502, no 4xx: que el Banco Central este caido no significa que el
+        cliente se haya equivocado, y un 4xx le diria exactamente eso."""
+        return JSONResponse(status_code=502, content={"detalle": str(error)})
 
 
 app = crear_app()
