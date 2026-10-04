@@ -73,6 +73,7 @@ def _compra_con_renglones(
         sesion.add(
             LineaCompra(
                 compra_id=compra.id,
+                usuario_id=compra.usuario_id,
                 categoria_id=categoria.id if categoria else None,
                 descripcion="Renglon",
                 cantidad=1,
@@ -308,8 +309,8 @@ def test_el_endpoint_responde_el_gasto_del_mes(
 ) -> None:
     """Y de paso fija el orden de las rutas.
 
-    `/api/compras/gasto-por-categoria` tiene que declararse antes que
-    `/api/compras/{compra_id}`; si se invirtieran, esta llamada entraría por
+    `/api/v1/compras/gasto-por-categoria` tiene que declararse antes que
+    `/api/v1/compras/{compra_id}`; si se invirtieran, esta llamada entraría por
     el detalle y daría 422 al no poder leer "gasto-por-categoria" como un id.
     """
     alimentacion = _categoria(sesion, usuario, "Alimentacion")
@@ -318,8 +319,8 @@ def test_el_endpoint_responde_el_gasto_del_mes(
     sesion.commit()
 
     respuesta = cliente.get(
-        "/api/compras/gasto-por-categoria",
-        params={"usuario_id": usuario.id, "anio": 2026, "mes": 9},
+        "/api/v1/compras/gasto-por-categoria",
+        params={"anio": 2026, "mes": 9},
     )
 
     assert respuesta.status_code == 200
@@ -335,8 +336,8 @@ def test_el_endpoint_responde_el_gasto_del_mes(
 
 def test_el_endpoint_rechaza_un_mes_fuera_de_rango(cliente: TestClient, usuario: Usuario) -> None:
     respuesta = cliente.get(
-        "/api/compras/gasto-por-categoria",
-        params={"usuario_id": usuario.id, "anio": 2026, "mes": 13},
+        "/api/v1/compras/gasto-por-categoria",
+        params={"anio": 2026, "mes": 13},
     )
 
     assert respuesta.status_code == 422
