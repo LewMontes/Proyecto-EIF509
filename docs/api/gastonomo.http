@@ -1,0 +1,584 @@
+### ============================================================================
+###  Gastonomo · colección de peticiones de la API REST (/api/v1)
+###  EIF509 · Laboratorio 5 · Grupo G01
+###
+###  Ejercita los 42 endpoints del contrato, en un orden que se puede correr de
+###  arriba hacia abajo: cada petición usa lo que crearon las anteriores.
+###
+###  Cómo usarla
+###  -----------
+###  VS Code con la extensión «REST Client» (humao.rest-client): abrir este
+###  archivo y hacer clic en «Send Request» sobre cada bloque. Las variables
+###  `{{nombre.response.body.campo}}` toman el valor de la respuesta de la
+###  petición que lleva `# @name nombre`, así que hay que correrlas en orden.
+###
+###  Antes de empezar
+###  ----------------
+###  1. Levantar la aplicación con una cuenta de administración sembrada
+###     (sin estas dos variables no existe ningún ADMIN):
+###
+###        GASTONOMO_ADMIN_CORREO=admin@gastonomo.cr
+###        GASTONOMO_ADMIN_CONTRASENA=clave-de-admin-123
+###        uvicorn app.main:app --reload --app-dir src
+###
+###  2. Si ya corriste la colección antes, cambiá `@correo` por otro: registrar
+###     dos veces el mismo correo responde 409, que es lo correcto.
+### ============================================================================
+
+@base = http://127.0.0.1:8000
+@api = {{base}}/api/v1
+
+@correo = ana@gastonomo.cr
+@contrasena = una-clave-larga
+@correoAdmin = admin@gastonomo.cr
+@contrasenaAdmin = clave-de-admin-123
+
+
+### ----------------------------------------------------------------------------
+###  0 · Salud  (público, sin versión)
+### ----------------------------------------------------------------------------
+
+### 0.1 · GET /api/salud → 200
+GET {{base}}/api/salud
+
+
+### ----------------------------------------------------------------------------
+###  1 · Cuentas y autenticación
+### ----------------------------------------------------------------------------
+
+### 1.1 · POST /usuarios → 201 + Location   (público; toda cuenta nace TITULAR)
+# @name registro
+POST {{api}}/usuarios
+Content-Type: application/json
+
+{
+  "nombre_completo": "Ana Mora",
+  "correo": "{{correo}}",
+  "contrasena": "{{contrasena}}"
+}
+
+### 1.2 · POST /auth/login → 200   (emite el JWT)
+# @name login
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{
+  "correo": "{{correo}}",
+  "contrasena": "{{contrasena}}"
+}
+
+### 1.3 · POST /auth/login como administrador → 200
+# @name loginAdmin
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{
+  "correo": "{{correoAdmin}}",
+  "contrasena": "{{contrasenaAdmin}}"
+}
+
+###
+@token = {{login.response.body.access_token}}
+@tokenAdmin = {{loginAdmin.response.body.access_token}}
+
+### 1.4 · GET /usuarios/yo → 200   (la cuenta del token)
+GET {{api}}/usuarios/yo
+Authorization: Bearer {{token}}
+
+### 1.5 · GET /usuarios/{id} → 200   (la propia; la de otro titular da 403)
+GET {{api}}/usuarios/{{registro.response.body.id}}
+Authorization: Bearer {{token}}
+
+### 1.6 · GET /usuarios → 200   (solo ADMIN; paginada)
+GET {{api}}/usuarios?pagina=0&tamano=10&orden=correo,asc
+Authorization: Bearer {{tokenAdmin}}
+
+
+### ----------------------------------------------------------------------------
+###  2 · Categorías
+### ----------------------------------------------------------------------------
+
+### 2.1 · POST /categorias → 201 + Location
+###       (La cuenta ya nació con la jerarquía estándar -Supermercado, Farmacia...-:
+###       esta es una categoría propia, además de esas.)
+# @name categoria
+POST {{api}}/categorias
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "Feria del agricultor",
+  "color_hex": "#16A34A",
+  "descripcion": "Frutas y verduras de la feria"
+}
+
+### 2.2 · POST /categorias → 201   (una segunda, para desactivarla después)
+# @name categoriaTemporal
+POST {{api}}/categorias
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "Temporal",
+  "color_hex": "#6B7280"
+}
+
+### 2.3 · GET /categorias → 200
+GET {{api}}/categorias
+Authorization: Bearer {{token}}
+
+### 2.4 · GET /categorias/{id} → 200
+GET {{api}}/categorias/{{categoria.response.body.id}}
+Authorization: Bearer {{token}}
+
+### 2.5 · PUT /categorias/{id} → 200
+PUT {{api}}/categorias/{{categoria.response.body.id}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "Feria del agricultor",
+  "color_hex": "#22C55E",
+  "descripcion": "Frutas, verduras y granos de la feria"
+}
+
+### 2.6 · DELETE /categorias/{id} → 204   (borrado lógico)
+DELETE {{api}}/categorias/{{categoriaTemporal.response.body.id}}
+Authorization: Bearer {{token}}
+
+
+### ----------------------------------------------------------------------------
+###  3 · Comercios  (catálogo compartido: lo da de alta un ADMIN)
+### ----------------------------------------------------------------------------
+
+### 3.1 · POST /comercios → 201 + Location   (solo ADMIN)
+# @name comercio
+POST {{api}}/comercios
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{
+  "nombre": "Automercado Heredia",
+  "identificacion_tributaria": "3101007223",
+  "provincia": "Heredia"
+}
+
+### 3.2 · GET /comercios → 200   (paginada, con filtro por nombre)
+GET {{api}}/comercios?nombre=automercado&pagina=0&tamano=20&orden=nombre,asc
+Authorization: Bearer {{token}}
+
+### 3.3 · GET /comercios/{id} → 200
+GET {{api}}/comercios/{{comercio.response.body.id}}
+Authorization: Bearer {{token}}
+
+### 3.4 · PUT /comercios/{id}/categoria-sugerida → 200   (idempotente)
+PUT {{api}}/comercios/{{comercio.response.body.id}}/categoria-sugerida
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "categoria_id": {{categoria.response.body.id}}
+}
+
+
+### ----------------------------------------------------------------------------
+###  4 · Métodos de pago
+### ----------------------------------------------------------------------------
+
+### 4.1 · POST /metodos-pago → 201 + Location
+# @name metodoPago
+POST {{api}}/metodos-pago
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "alias": "Visa BAC",
+  "tipo": "CREDITO",
+  "moneda": "CRC",
+  "ultimos_cuatro": "4321",
+  "entidad": "BAC Credomatic",
+  "dia_corte": 15
+}
+
+### 4.2 · POST /metodos-pago → 201   (uno más, para desactivarlo después)
+# @name metodoPagoTemporal
+POST {{api}}/metodos-pago
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "alias": "Efectivo",
+  "tipo": "EFECTIVO"
+}
+
+### 4.3 · GET /metodos-pago → 200
+GET {{api}}/metodos-pago
+Authorization: Bearer {{token}}
+
+### 4.4 · GET /metodos-pago/{id} → 200
+GET {{api}}/metodos-pago/{{metodoPago.response.body.id}}
+Authorization: Bearer {{token}}
+
+### 4.5 · DELETE /metodos-pago/{id} → 204   (borrado lógico)
+DELETE {{api}}/metodos-pago/{{metodoPagoTemporal.response.body.id}}
+Authorization: Bearer {{token}}
+
+
+### ----------------------------------------------------------------------------
+###  5 · Presupuestos
+### ----------------------------------------------------------------------------
+
+### 5.1 · POST /presupuestos → 201 + Location
+# @name presupuesto
+POST {{api}}/presupuestos
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "categoria_id": {{categoria.response.body.id}},
+  "anio": 2026,
+  "mes": 8,
+  "moneda": "CRC",
+  "monto_limite": "150000.00",
+  "umbral_alerta": 80
+}
+
+### 5.2 · GET /presupuestos?anio=&mes= → 200
+GET {{api}}/presupuestos?anio=2026&mes=8
+Authorization: Bearer {{token}}
+
+### 5.3 · GET /presupuestos/{id} → 200   (trae `monto_consumido`)
+GET {{api}}/presupuestos/{{presupuesto.response.body.id}}
+Authorization: Bearer {{token}}
+
+### 5.4 · PUT /presupuestos/{id} → 200
+PUT {{api}}/presupuestos/{{presupuesto.response.body.id}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "monto_limite": "200000.00",
+  "umbral_alerta": 90
+}
+
+
+### ----------------------------------------------------------------------------
+###  6 · Reglas de categorización
+### ----------------------------------------------------------------------------
+
+### 6.1 · POST /reglas-categorizacion → 201 + Location
+# @name regla
+POST {{api}}/reglas-categorizacion
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "Walmart es supermercado",
+  "patron": "WALMART",
+  "categoria_destino_id": {{categoria.response.body.id}},
+  "prioridad": 1
+}
+
+### 6.2 · POST /reglas-categorizacion → 201   (otra, para desactivarla después)
+# @name reglaTemporal
+POST {{api}}/reglas-categorizacion
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "Maxi Palí",
+  "patron": "MAXI PALI",
+  "categoria_destino_id": {{categoria.response.body.id}}
+}
+
+### 6.3 · GET /reglas-categorizacion → 200
+GET {{api}}/reglas-categorizacion
+Authorization: Bearer {{token}}
+
+### 6.4 · GET /reglas-categorizacion/{id} → 200
+GET {{api}}/reglas-categorizacion/{{regla.response.body.id}}
+Authorization: Bearer {{token}}
+
+### 6.5 · DELETE /reglas-categorizacion/{id} → 204   (borrado lógico)
+DELETE {{api}}/reglas-categorizacion/{{reglaTemporal.response.body.id}}
+Authorization: Bearer {{token}}
+
+
+### ----------------------------------------------------------------------------
+###  7 · PROCESO 1 · Registro manual de una compra con desglose
+### ----------------------------------------------------------------------------
+
+### 7.1 · POST /compras → 201 + Location
+###       Dos renglones: uno con categoría elegida, otro que clasifica la cadena
+###       (acá, la sugerencia del comercio que se asignó en 3.4).
+# @name compra
+POST {{api}}/compras
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "comercio_id": {{comercio.response.body.id}},
+  "fecha": "2026-08-30",
+  "metodo_pago_id": {{metodoPago.response.body.id}},
+  "lineas": [
+    {
+      "descripcion": "Leche 1L",
+      "cantidad": "2",
+      "precio_unitario": "1000.00",
+      "categoria_id": {{categoria.response.body.id}}
+    },
+    {
+      "descripcion": "Arroz 2kg",
+      "cantidad": "1",
+      "precio_unitario": "2500.00",
+      "exento_impuesto": true
+    }
+  ],
+  "total_declarado": "4760.00"
+}
+
+### 7.2 · GET /compras → 200   (paginada, ordenada y filtrada)
+GET {{api}}/compras?pagina=0&tamano=10&orden=fecha,desc&orden=total,asc&desde=2026-08-01&hasta=2026-08-31&categoria_id={{categoria.response.body.id}}&estado=REGISTRADA
+Authorization: Bearer {{token}}
+
+### 7.3 · GET /compras/gasto-por-categoria → 200
+GET {{api}}/compras/gasto-por-categoria?anio=2026&mes=8
+Authorization: Bearer {{token}}
+
+### 7.4 · GET /compras/{id} → 200
+GET {{api}}/compras/{{compra.response.body.compra_id}}
+Authorization: Bearer {{token}}
+
+### 7.5 · PATCH /compras/{id} → 200   (corrección parcial)
+PATCH {{api}}/compras/{{compra.response.body.compra_id}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "metodo_pago_id": {{metodoPago.response.body.id}}
+}
+
+### 7.6 · GET /compras/{id}/bitacora → 200 con MongoDB levantado; 404 sin él
+GET {{api}}/compras/{{compra.response.body.compra_id}}/bitacora
+Authorization: Bearer {{token}}
+
+
+### ----------------------------------------------------------------------------
+###  8 · PROCESO 2 · Ingesta y conciliación de un comprobante
+### ----------------------------------------------------------------------------
+
+### 8.1 · POST /cuentas-correo → 201 + Location   (el buzón del que viene el comprobante)
+# @name buzon
+POST {{api}}/cuentas-correo
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "proveedor": "GMAIL",
+  "direccion": "{{correo}}"
+}
+
+### 8.2 · GET /cuentas-correo → 200
+GET {{api}}/cuentas-correo
+Authorization: Bearer {{token}}
+
+### 8.3 · GET /cuentas-correo/{id} → 200
+GET {{api}}/cuentas-correo/{{buzon.response.body.id}}
+Authorization: Bearer {{token}}
+
+### 8.4 · POST /comprobantes → 201 + Location
+###       Empareja la tarjeta 4321, la regla WALMART lo categoriza, crea la compra,
+###       acumula el presupuesto y deja el comprobante PROCESADO: todo o nada.
+# @name comprobante
+POST {{api}}/comprobantes
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "cuenta_correo_id": {{buzon.response.body.id}},
+  "mensaje_id": "AAMkAGI2-0001",
+  "remitente": "notificacion@baccredomatic.cr",
+  "banco": "BAC Credomatic",
+  "comercio": "WALMART SAN SEBASTIAN",
+  "monto": "7870.00",
+  "moneda": "CRC",
+  "fecha": "2026-08-30T13:27:00",
+  "ultimos_cuatro": "4321"
+}
+
+### 8.5 · POST /comprobantes → 201, pero queda PARSEADO y sin compra
+###       En dólares y sin tipo de cambio para su fecha: queda pendiente.
+###       (Con las credenciales del BCCR configuradas se concilia de una vez.)
+# @name comprobantePendiente
+POST {{api}}/comprobantes
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "cuenta_correo_id": {{buzon.response.body.id}},
+  "mensaje_id": "AAMkAGI2-0002",
+  "remitente": "notificacion@baccredomatic.cr",
+  "banco": "BAC Credomatic",
+  "comercio": "NETFLIX.COM",
+  "monto": "10.99",
+  "moneda": "USD",
+  "fecha": "2026-08-15T08:00:00",
+  "ultimos_cuatro": "4321"
+}
+
+### 8.6 · GET /comprobantes → 200   (paginada, con filtro por estado)
+GET {{api}}/comprobantes?estado=PROCESADO&pagina=0&tamano=10&orden=recibido_en,desc
+Authorization: Bearer {{token}}
+
+### 8.7 · GET /comprobantes/{id} → 200
+GET {{api}}/comprobantes/{{comprobante.response.body.id}}
+Authorization: Bearer {{token}}
+
+### 8.8 · POST /comprobantes/{id}/reintentos → 200 si ya hay tasa; sigue PARSEADO si no
+POST {{api}}/comprobantes/{{comprobantePendiente.response.body.id}}/reintentos
+Authorization: Bearer {{token}}
+
+### 8.9 · La compra que originó el comprobante de 8.4
+GET {{api}}/compras/{{comprobante.response.body.compra_id}}
+Authorization: Bearer {{token}}
+
+
+### ----------------------------------------------------------------------------
+###  9 · Bajas  (al final, porque lo de arriba las necesita vivas)
+### ----------------------------------------------------------------------------
+
+### 9.1 · DELETE /compras/{id} → 204   (anula y devuelve el monto al presupuesto)
+DELETE {{api}}/compras/{{compra.response.body.compra_id}}
+Authorization: Bearer {{token}}
+
+### 9.2 · DELETE /presupuestos/{id} → 204
+DELETE {{api}}/presupuestos/{{presupuesto.response.body.id}}
+Authorization: Bearer {{token}}
+
+
+### ============================================================================
+###  10 · Los errores del contrato: uno por código  (application/problem+json)
+### ============================================================================
+
+### 10.1 · 400 · petición mal formada: nombre vacío y color de 3 caracteres
+POST {{api}}/categorias
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "",
+  "color_hex": "#12"
+}
+
+### 10.2 · 400 · monto negativo, moneda desconocida y fecha futura en el Proceso 2
+POST {{api}}/comprobantes
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "cuenta_correo_id": {{buzon.response.body.id}},
+  "mensaje_id": "AAMkAGI2-9999",
+  "remitente": "notificacion@baccredomatic.cr",
+  "banco": "BAC Credomatic",
+  "comercio": "WALMART",
+  "monto": "-50.00",
+  "moneda": "XYZ",
+  "fecha": "2999-01-01T00:00:00"
+}
+
+### 10.3 · 400 · orden por un campo que no está en la lista
+GET {{api}}/compras?orden=contrasena_hash,desc
+Authorization: Bearer {{token}}
+
+### 10.4 · 401 · sin token
+GET {{api}}/compras
+
+### 10.5 · 401 · credenciales incorrectas
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{
+  "correo": "{{correo}}",
+  "contrasena": "no-es-la-clave"
+}
+
+### 10.6 · 403 · un TITULAR en un endpoint de ADMIN
+GET {{api}}/usuarios
+Authorization: Bearer {{token}}
+
+### 10.7 · 403 · un TITULAR da de alta un comercio
+POST {{api}}/comercios
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "Mi comercio"
+}
+
+### 10.8 · 404 · un recurso que no existe (o que es de otro titular)
+GET {{api}}/compras/999999
+Authorization: Bearer {{token}}
+
+### 10.9 · 409 · nombre de categoría repetido (ya existe en la jerarquía estándar)
+POST {{api}}/categorias
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "Supermercado",
+  "color_hex": "#16A34A"
+}
+
+### 10.10 · 409 · el mismo comprobante dos veces (la ingesta es idempotente)
+POST {{api}}/comprobantes
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "cuenta_correo_id": {{buzon.response.body.id}},
+  "mensaje_id": "AAMkAGI2-0001",
+  "remitente": "notificacion@baccredomatic.cr",
+  "banco": "BAC Credomatic",
+  "comercio": "WALMART SAN SEBASTIAN",
+  "monto": "7870.00",
+  "moneda": "CRC",
+  "fecha": "2026-08-30T13:27:00",
+  "ultimos_cuatro": "4321"
+}
+
+### 10.11 · 409 · anular una compra que ya está anulada (correr después de 9.1)
+DELETE {{api}}/compras/{{compra.response.body.compra_id}}
+Authorization: Bearer {{token}}
+
+### 10.12 · 422 · bien formado, pero el color no es hexadecimal
+POST {{api}}/categorias
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "Transporte",
+  "color_hex": "#ZZZZZZ"
+}
+
+### 10.13 · 422 · rango de fechas invertido
+GET {{api}}/compras?desde=2026-09-30&hasta=2026-09-01
+Authorization: Bearer {{token}}
+
+### 10.14 · 422 · una compra en dólares sin el tipo de cambio de su fecha
+POST {{api}}/compras
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "comercio_id": {{comercio.response.body.id}},
+  "fecha": "2026-08-30",
+  "moneda": "USD",
+  "lineas": [
+    {
+      "descripcion": "Suscripción",
+      "cantidad": "1",
+      "precio_unitario": "10.99",
+      "categoria_id": {{categoria.response.body.id}}
+    }
+  ]
+}
