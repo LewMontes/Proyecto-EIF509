@@ -33,7 +33,7 @@ def titular(sesion_postgres: Session) -> Usuario:
     usuario = Usuario(
         nombre_completo="Titular de prueba",
         correo="consultas@gastonomo.cr",
-        contrasena_hash="hash-de-prueba",
+        contrasena_hash="hash-de-prueba-con-el-largo-minimo",
         moneda_preferida=Moneda.CRC,
     )
     sesion_postgres.add(usuario)
@@ -77,6 +77,7 @@ def _compra(
     sesion.add(
         LineaCompra(
             compra_id=compra.id,
+            usuario_id=compra.usuario_id,
             categoria_id=categoria.id if categoria else None,
             descripcion="Renglon",
             cantidad=1,

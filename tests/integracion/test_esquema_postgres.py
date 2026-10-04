@@ -29,7 +29,7 @@ def _titular(sesion: Session, correo: str = "titular@gastonomo.cr") -> Usuario:
     usuario = Usuario(
         nombre_completo="Titular de prueba",
         correo=correo,
-        contrasena_hash="hash-de-prueba",
+        contrasena_hash="hash-de-prueba-con-el-largo-minimo",
         moneda_preferida=Moneda.CRC,
     )
     sesion.add(usuario)
@@ -73,6 +73,7 @@ def test_borrar_una_compra_arrastra_sus_renglones(sesion_postgres: Session) -> N
     sesion_postgres.add(
         LineaCompra(
             compra_id=compra.id,
+            usuario_id=compra.usuario_id,
             descripcion="Renglon",
             cantidad=1,
             precio_unitario=Decimal("10000"),
@@ -187,6 +188,7 @@ def test_una_transaccion_fallida_no_deja_nada_a_medias(sesion_postgres: Session)
     sesion_postgres.add(
         LineaCompra(
             compra_id=compra.id,
+            usuario_id=compra.usuario_id,
             descripcion="Renglon",
             cantidad=1,
             precio_unitario=Decimal("10000"),
@@ -242,7 +244,7 @@ def test_el_mapeo_calza_con_el_esquema_que_hay_en_la_base(
 def test_las_llaves_foraneas_del_mapeo_existen_en_la_base(
     sesion_postgres: Session,
 ) -> None:
-    """Las veinte relaciones tienen su llave foránea de verdad detrás.
+    """Las veintidós llaves foráneas del mapeo tienen su llave foránea de verdad detrás.
 
     Una relación mapeada sin su `FOREIGN KEY` en la base "funciona" -SQLAlchemy
     hace el `JOIN` igual- pero deja de garantizar la integridad referencial:
@@ -254,4 +256,4 @@ def test_las_llaves_foraneas_del_mapeo_existen_en_la_base(
         total_reales += len(inspector.get_foreign_keys(nombre))
 
     total_mapeadas = sum(len(tabla.foreign_keys) for tabla in Base.metadata.tables.values())
-    assert total_reales == total_mapeadas == 20
+    assert total_reales == total_mapeadas == 22

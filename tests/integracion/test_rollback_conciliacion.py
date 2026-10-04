@@ -32,10 +32,12 @@ import pytest
 from sqlalchemy import Engine, delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.business.parsers.comprobante_bac import ComprobanteParseado
 from app.business.services.bitacora_service import BitacoraComprasService
 from app.business.services.comercio_service import ComercioService
-from app.business.services.conciliacion_service import ConciliacionService
+from app.business.services.conciliacion_service import (
+    ConciliacionService,
+    ConciliarComprobanteComando,
+)
 from app.data.models.categoria import Categoria
 from app.data.models.comercio import Comercio
 from app.data.models.compra import Compra
@@ -43,6 +45,7 @@ from app.data.models.comprobante import Comprobante
 from app.data.models.cuenta_correo import CuentaCorreo
 from app.data.models.enums import (
     CampoRegla,
+    EstadoComprobante,
     EstadoCuentaCorreo,
     Moneda,
     ProveedorCorreo,
@@ -86,7 +89,7 @@ class _Escenario:
         self.usuario = Usuario(
             nombre_completo="Titular de prueba",
             correo="titular@gastonomo.cr",
-            contrasena_hash="hash",
+            contrasena_hash="hash-de-prueba-con-el-largo-minimo",
         )
         sesion.add(self.usuario)
         sesion.flush()
@@ -142,8 +145,10 @@ class _Escenario:
         sesion.flush()
 
         self.comprobante = Comprobante(
+            usuario_id=self.usuario.id,
             cuenta_correo_id=cuenta.id,
             mensaje_id="mensaje-1",
+            remitente="notificacion@baccredomatic.cr",
             banco="BAC Credomatic",
             confianza=1.0,
         )
@@ -151,20 +156,17 @@ class _Escenario:
         sesion.commit()
 
     @property
-    def parseado(self) -> ComprobanteParseado:
-        return ComprobanteParseado(
-            banco="BAC Credomatic",
+    def comando(self) -> ConciliarComprobanteComando:
+        """La orden de conciliar: lo que el lector extrajo, no la entidad."""
+        return ConciliarComprobanteComando(
+            usuario_id=self.usuario.id,
+            comprobante_id=self.comprobante.id,
             comercio="Walmart San Sebastián",
-            ciudad="SAN JOSE",
-            pais="Costa Rica",
-            fecha=FECHA_DE_LA_COMPRA,
-            marca_tarjeta="VISA",
-            ultimos_cuatro="4321",
-            autorizacion="100200",
-            referencia="99887766",
-            tipo_transaccion="COMPRA",
-            moneda="CRC",
             monto=MONTO,
+            moneda="CRC",
+            fecha=FECHA_DE_LA_COMPRA,
+            ultimos_cuatro="4321",
+            tipo_transaccion="COMPRA",
             confianza=1.0,
         )
 
@@ -260,7 +262,7 @@ def test_un_fallo_al_acumular_el_presupuesto_no_deja_nada_escrito(
         ),
         pytest.raises(RuntimeError),
     ):
-        servicio.conciliar(escenario.usuario.id, escenario.comprobante, escenario.parseado)
+        servicio.conciliar(escenario.comando)
 
     sesion_sin_transaccion_externa.rollback()
 
@@ -273,6 +275,11 @@ def test_un_fallo_al_acumular_el_presupuesto_no_deja_nada_escrito(
     assert comprobante.compra_id is None, (
         "el comprobante no puede quedar conciliado: un reintento no lo volvería a tomar"
     )
+    # Lo único que sí queda escrito, y a propósito fuera de la transacción
+    # revertida: el intento fallido. Sigue PARSEADO, así que se puede reintentar.
+    assert comprobante.estado == EstadoComprobante.PARSEADO
+    assert comprobante.intentos_procesamiento == 1
+    assert "caída al leer el presupuesto" in comprobante.motivo_fallo
 
     presupuesto = sesion_sin_transaccion_externa.scalars(
         select(Presupuesto).where(Presupuesto.id == escenario.presupuesto.id)
@@ -311,7 +318,7 @@ def test_el_comercio_resuelto_sobrevive_al_rollback(
         ),
         pytest.raises(RuntimeError),
     ):
-        servicio.conciliar(escenario.usuario.id, escenario.comprobante, escenario.parseado)
+        servicio.conciliar(escenario.comando)
 
     sesion_sin_transaccion_externa.rollback()
 
@@ -343,7 +350,7 @@ def test_un_fallo_al_escribir_el_renglon_no_deja_la_compra_suelta(
         ),
         pytest.raises(RuntimeError),
     ):
-        servicio.conciliar(escenario.usuario.id, escenario.comprobante, escenario.parseado)
+        servicio.conciliar(escenario.comando)
 
     sesion_sin_transaccion_externa.rollback()
 
@@ -367,9 +374,9 @@ def test_una_conciliacion_completa_si_escribe_las_cinco_tablas(
     """
     servicio = _armar(sesion_sin_transaccion_externa)
 
-    resultado = servicio.conciliar(escenario.usuario.id, escenario.comprobante, escenario.parseado)
+    resultado = servicio.conciliar(escenario.comando)
 
-    assert resultado is not None
+    assert resultado.compra_id is not None
     assert resultado.requiere_revision is False
 
     compra = sesion_sin_transaccion_externa.scalars(select(Compra)).one()
@@ -387,3 +394,4 @@ def test_una_conciliacion_completa_si_escribe_las_cinco_tablas(
     assert escenario.presupuesto.monto_consumido == MONTO
     assert escenario.regla.veces_aplicada == 1
     assert escenario.comprobante.compra_id == compra.id
+    assert escenario.comprobante.estado == EstadoComprobante.PROCESADO

@@ -3,16 +3,26 @@ real- probado sin tocar red ni Mongo."""
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy.orm import Session
 
-from app.business.errors import DatosInvalidos, RecursoNoEncontrado, ReglaDeNegocioViolada
+from app.business.errors import (
+    CompraYaAnulada,
+    DatosInvalidos,
+    RecursoNoEncontrado,
+    ReglaDeNegocioViolada,
+    TransicionDeComprobanteInvalida,
+)
 from app.business.parsers.comprobante_bac import ComprobanteParseado
 from app.business.services.bitacora_service import BitacoraComprasService
 from app.business.services.categoria_service import CategoriaService, CrearCategoriaComando
 from app.business.services.comercio_service import ComercioService
-from app.business.services.conciliacion_service import ConciliacionService
+from app.business.services.conciliacion_service import (
+    ConciliacionService,
+    ConciliarComprobanteComando,
+)
 from app.business.services.metodo_pago_service import CrearMetodoPagoComando, MetodoPagoService
 from app.business.services.presupuesto_service import PresupuestoService
 from app.business.services.tipo_cambio_service import TipoDeCambio
@@ -20,6 +30,8 @@ from app.data.models.comprobante import Comprobante
 from app.data.models.cuenta_correo import CuentaCorreo
 from app.data.models.enums import (
     CampoRegla,
+    EstadoCompra,
+    EstadoComprobante,
     EstadoCuentaCorreo,
     Moneda,
     ProveedorCorreo,
@@ -144,14 +156,33 @@ def _comprobante(
     sesion: Session, cuenta_correo: CuentaCorreo, mensaje_id: str = "1"
 ) -> Comprobante:
     fila = Comprobante(
+        usuario_id=cuenta_correo.usuario_id,
         cuenta_correo_id=cuenta_correo.id,
         mensaje_id=mensaje_id,
+        remitente="notificacion@baccredomatic.cr",
         banco="BAC Credomatic",
         confianza=1.0,
     )
     sesion.add(fila)
     sesion.commit()
     return fila
+
+
+def _comando(
+    usuario_id: int, comprobante: Comprobante, parseado: ComprobanteParseado
+) -> ConciliarComprobanteComando:
+    """La orden de conciliar, armada con lo que el lector extrajo del mensaje."""
+    return ConciliarComprobanteComando(
+        usuario_id=usuario_id,
+        comprobante_id=comprobante.id,
+        comercio=parseado.comercio,
+        monto=parseado.monto,
+        moneda=parseado.moneda,
+        fecha=parseado.fecha,
+        ultimos_cuatro=parseado.ultimos_cuatro,
+        tipo_transaccion=parseado.tipo_transaccion,
+        confianza=parseado.confianza,
+    )
 
 
 # ---- casos que ni siquiera intentan conciliar ----
@@ -162,9 +193,9 @@ def test_una_notificacion_no_confiable_no_concilia(
 ) -> None:
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado(confianza=0.5))
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado(confianza=0.5)))
 
-    assert resultado is None
+    assert resultado.compra_id is None
     assert comprobante.compra_id is None
 
 
@@ -173,9 +204,11 @@ def test_una_anulacion_no_concilia(
 ) -> None:
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado(tipo_transaccion="ANULACION"))
+    resultado = servicio.conciliar(
+        _comando(usuario.id, comprobante, _parseado(tipo_transaccion="ANULACION"))
+    )
 
-    assert resultado is None
+    assert resultado.compra_id is None
 
 
 def test_sin_comercio_no_concilia(
@@ -183,9 +216,9 @@ def test_sin_comercio_no_concilia(
 ) -> None:
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado(comercio=None))
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado(comercio=None)))
 
-    assert resultado is None
+    assert resultado.compra_id is None
 
 
 # ---- conciliación real ----
@@ -211,7 +244,7 @@ def test_concilia_una_compra_completa(
     servicio.comercios_servicio.asignar_categoria(usuario.id, comercio.id, categoria.id)
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     assert resultado is not None
     assert resultado.requiere_revision is False
@@ -233,7 +266,7 @@ def test_sin_metodo_de_pago_registrado_queda_para_revision(
 ) -> None:
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     assert resultado.requiere_revision is True
     compra = servicio.compras.obtener_de_usuario(resultado.compra_id, usuario.id)
@@ -254,7 +287,7 @@ def test_nunca_inventa_un_metodo_de_pago_aunque_haya_otras_tarjetas(
     )
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     compra = servicio.compras.obtener_de_usuario(resultado.compra_id, usuario.id)
     assert compra.metodo_pago_id is None
@@ -265,7 +298,7 @@ def test_una_compra_sin_categoria_disponible_queda_sin_clasificar(
 ) -> None:
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     assert resultado.requiere_revision is True
     compra = servicio.compras.obtener_de_usuario(resultado.compra_id, usuario.id)
@@ -296,7 +329,7 @@ def test_una_regla_activa_categoriza_automatico(
     sesion.commit()
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     compra = servicio.compras.obtener_de_usuario(resultado.compra_id, usuario.id)
     lineas = servicio.lineas.listar_de_compra(compra.id)
@@ -334,7 +367,7 @@ def test_una_regla_gana_sobre_la_sugerencia_del_comercio(
     sesion.commit()
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     lineas = servicio.lineas.listar_de_compra(resultado.compra_id)
     assert lineas[0].categoria_id == por_regla.id
@@ -349,7 +382,7 @@ def test_convierte_a_la_tasa_de_la_compra_en_dolares(
     comprobante = _comprobante(sesion, cuenta_correo)
 
     resultado = servicio_con_tasa.conciliar(
-        usuario.id, comprobante, _parseado(moneda="USD", monto=Decimal("10.00"))
+        _comando(usuario.id, comprobante, _parseado(moneda="USD", monto=Decimal("10.00")))
     )
 
     compra = servicio_con_tasa.compras.obtener_de_usuario(resultado.compra_id, usuario.id)
@@ -359,18 +392,89 @@ def test_convierte_a_la_tasa_de_la_compra_en_dolares(
     assert compra.total_moneda_base == Decimal("5500.00")
 
 
-def test_sin_servicio_de_tipo_cambio_no_convierte(
+def test_sin_tipo_de_cambio_el_comprobante_queda_pendiente(
+    servicio: ConciliacionService, usuario: Usuario, cuenta_correo: CuentaCorreo, sesion: Session
+) -> None:
+    """La regla de la propuesta: sin tasa para su fecha no se crea la compra.
+
+    Antes se usaba una tasa de 1, que registraba 10 dólares como 10 colones.
+    """
+    comprobante = _comprobante(sesion, cuenta_correo)
+
+    resultado = servicio.conciliar(
+        _comando(usuario.id, comprobante, _parseado(moneda="USD", monto=Decimal("10.00")))
+    )
+
+    assert resultado.compra_id is None
+    assert resultado.estado == EstadoComprobante.PARSEADO
+    assert "tipo de cambio" in resultado.motivo
+    assert comprobante.compra_id is None
+    assert comprobante.intentos_procesamiento == 0, "esperar la tasa no cuenta como fallo"
+    assert servicio.compras.listar_de_usuario(usuario.id) == []
+
+
+def test_un_comprobante_pendiente_se_concilia_cuando_aparece_la_tasa(
+    servicio: ConciliacionService, usuario: Usuario, cuenta_correo: CuentaCorreo, sesion: Session
+) -> None:
+    comprobante = _comprobante(sesion, cuenta_correo)
+    comando = _comando(usuario.id, comprobante, _parseado(moneda="USD", monto=Decimal("10.00")))
+    assert servicio.conciliar(comando).compra_id is None
+
+    servicio.tipos_cambio.guardar_tasa(
+        Moneda.USD, Moneda.CRC, date(2026, 8, 30), Decimal("550"), "BCCR"
+    )
+    sesion.commit()
+    resultado = servicio.conciliar(comando)
+
+    assert resultado.estado == EstadoComprobante.PROCESADO
+    compra = servicio.compras.obtener_de_usuario(resultado.compra_id, usuario.id)
+    assert compra.total_moneda_base == Decimal("5500.00")
+    assert comprobante.motivo_fallo is None
+
+
+def test_un_comprobante_ya_procesado_no_se_concilia_dos_veces(
+    servicio: ConciliacionService, usuario: Usuario, cuenta_correo: CuentaCorreo, sesion: Session
+) -> None:
+    """La idempotencia desde el lado del negocio: el segundo intento se rechaza."""
+    comprobante = _comprobante(sesion, cuenta_correo)
+    comando = _comando(usuario.id, comprobante, _parseado())
+    servicio.conciliar(comando)
+
+    with pytest.raises(TransicionDeComprobanteInvalida):
+        servicio.conciliar(comando)
+
+    assert len(servicio.compras.listar_de_usuario(usuario.id)) == 1
+
+
+def test_un_comprobante_ajeno_no_se_concilia(
     servicio: ConciliacionService, usuario: Usuario, cuenta_correo: CuentaCorreo, sesion: Session
 ) -> None:
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(
-        usuario.id, comprobante, _parseado(moneda="USD", monto=Decimal("10.00"))
-    )
+    with pytest.raises(RecursoNoEncontrado):
+        servicio.conciliar(_comando(usuario.id + 1, comprobante, _parseado()))
 
-    compra = servicio.compras.obtener_de_usuario(resultado.compra_id, usuario.id)
-    assert compra.tipo_cambio_aplicado == Decimal("1")
-    assert compra.total_moneda_base == Decimal("10.00")
+
+def test_al_tercer_fallo_el_comprobante_pasa_a_fallido(
+    servicio: ConciliacionService, usuario: Usuario, cuenta_correo: CuentaCorreo, sesion: Session
+) -> None:
+    """«Un comprobante que falla tres veces pasa a FALLIDO»: no hay cuarto intento."""
+    comprobante = _comprobante(sesion, cuenta_correo)
+    comando = _comando(usuario.id, comprobante, _parseado())
+
+    with patch.object(
+        LineaCompraRepository, "agregar", side_effect=RuntimeError("caída al escribir")
+    ):
+        for intento in (1, 2, 3):
+            with pytest.raises(RuntimeError):
+                servicio.conciliar(comando)
+            assert comprobante.intentos_procesamiento == intento
+
+    assert comprobante.estado == EstadoComprobante.FALLIDO
+    assert "caída al escribir" in comprobante.motivo_fallo
+    assert comprobante.compra_id is None
+    with pytest.raises(TransicionDeComprobanteInvalida):
+        servicio.conciliar(comando)
 
 
 # ---- presupuesto ----
@@ -394,7 +498,7 @@ def test_acumula_el_presupuesto_de_la_categoria_y_periodo(
     servicio.comercios_servicio.asignar_categoria(usuario.id, comercio.id, categoria.id)
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     assert resultado.requiere_revision is True, "sigue sin metodo de pago"
     assert resultado.presupuesto_alertado is False
@@ -420,7 +524,7 @@ def test_marca_alerta_de_presupuesto_al_cruzar_el_umbral(
     servicio.comercios_servicio.asignar_categoria(usuario.id, comercio.id, categoria.id)
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     assert resultado.presupuesto_alertado is True
 
@@ -439,7 +543,7 @@ def test_una_categoria_sin_presupuesto_no_acumula_nada(
     servicio.comercios_servicio.asignar_categoria(usuario.id, comercio.id, categoria.id)
     comprobante = _comprobante(sesion, cuenta_correo)
 
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     assert resultado.presupuesto_alertado is False
 
@@ -462,7 +566,7 @@ def test_recategorizar_comercio_corrige_compras_ya_conciliadas(
         usuario.id, categoria.id, 2026, 8, Moneda.CRC, Decimal("10000")
     )
     comprobante = _comprobante(sesion, cuenta_correo)
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
     assert resultado.requiere_revision is True, "sin categoria todavia"
 
     comercio = servicio.comercios_servicio.resolver_o_crear("WALMART SAN SEBASTIAN")
@@ -491,7 +595,7 @@ def test_recategorizar_no_toca_una_compra_que_ya_tenia_categoria(
     comercio = servicio.comercios_servicio.resolver_o_crear("WALMART SAN SEBASTIAN")
     servicio.comercios_servicio.asignar_categoria(usuario.id, comercio.id, categoria_original.id)
     comprobante = _comprobante(sesion, cuenta_correo)
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     corregidas = servicio.recategorizar_compras_de_comercio(
         usuario.id, comercio.id, otra_categoria.id
@@ -509,7 +613,7 @@ def test_resolver_revision_sin_ningun_campo_falla(
     servicio: ConciliacionService, usuario: Usuario, cuenta_correo: CuentaCorreo, sesion: Session
 ) -> None:
     comprobante = _comprobante(sesion, cuenta_correo)
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     with pytest.raises(DatosInvalidos):
         servicio.resolver_revision(usuario.id, resultado.compra_id, None, None)
@@ -536,7 +640,7 @@ def test_resolver_revision_asigna_metodo_de_pago_y_quita_la_marca(
     comercio = servicio.comercios_servicio.resolver_o_crear("WALMART SAN SEBASTIAN")
     servicio.comercios_servicio.asignar_categoria(usuario.id, comercio.id, categoria.id)
     comprobante = _comprobante(sesion, cuenta_correo)
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
     assert resultado.requiere_revision is True, "sin metodo de pago todavia"
 
     metodo = metodos_pago.crear(
@@ -572,13 +676,13 @@ def test_resolver_revision_asigna_categoria_y_acumula_presupuesto(
         usuario.id, categoria.id, 2026, 8, Moneda.CRC, Decimal("10000")
     )
     comprobante = _comprobante(sesion, cuenta_correo)
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
     assert resultado.requiere_revision is True, "sin categoria todavia"
 
     corregida = servicio.resolver_revision(usuario.id, resultado.compra_id, None, categoria.id)
 
     assert corregida.requiere_revision is False
-    lineas = servicio.lineas.listar_de_compra(corregida.id)
+    lineas = servicio.lineas.listar_de_compra(corregida.compra_id)
     assert lineas[0].categoria_id == categoria.id
     actualizado = presupuestos.presupuestos.obtener_de_usuario(presupuesto.id, usuario.id)
     assert actualizado.monto_consumido == Decimal("7870.00")
@@ -610,7 +714,7 @@ def test_resolver_revision_no_toca_presupuesto_si_ya_tenia_categoria(
     comercio = servicio.comercios_servicio.resolver_o_crear("WALMART SAN SEBASTIAN")
     servicio.comercios_servicio.asignar_categoria(usuario.id, comercio.id, categoria_original.id)
     comprobante = _comprobante(sesion, cuenta_correo)
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
     consumido_antes = presupuestos.presupuestos.obtener_de_usuario(
         presupuesto_original.id, usuario.id
     ).monto_consumido
@@ -639,7 +743,7 @@ def test_resolver_revision_rechaza_metodo_de_pago_desactivado(
     )
     metodos_pago.desactivar(usuario.id, metodo.id)
     comprobante = _comprobante(sesion, cuenta_correo)
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     with pytest.raises(ReglaDeNegocioViolada):
         servicio.resolver_revision(usuario.id, resultado.compra_id, metodo.id, None)
@@ -664,7 +768,91 @@ def test_resolver_revision_rechaza_categoria_que_no_es_hoja(
         )
     )
     comprobante = _comprobante(sesion, cuenta_correo)
-    resultado = servicio.conciliar(usuario.id, comprobante, _parseado())
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
 
     with pytest.raises(ReglaDeNegocioViolada):
         servicio.resolver_revision(usuario.id, resultado.compra_id, None, grupo.id)
+
+
+# ---- anulación ----
+
+
+def test_anular_devuelve_el_monto_al_presupuesto(
+    servicio: ConciliacionService,
+    metodos_pago: MetodoPagoService,
+    presupuestos: PresupuestoService,
+    categorias: CategoriaService,
+    usuario: Usuario,
+    cuenta_correo: CuentaCorreo,
+    sesion: Session,
+) -> None:
+    """«Anular una compra devuelve su monto al presupuesto; nunca se borra físicamente»."""
+    metodos_pago.crear(
+        CrearMetodoPagoComando(
+            usuario_id=usuario.id, alias="Amex", tipo=TipoMetodoPago.CREDITO, ultimos_cuatro="4321"
+        )
+    )
+    categoria = categorias.crear(
+        CrearCategoriaComando(usuario_id=usuario.id, nombre="Supermercado", color_hex="#16A34A")
+    )
+    presupuesto = presupuestos.crear_o_actualizar(
+        usuario.id, categoria.id, 2026, 8, Moneda.CRC, Decimal("100000")
+    )
+    comprobante = _comprobante(sesion, cuenta_correo)
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
+    servicio.resolver_revision(usuario.id, resultado.compra_id, None, categoria.id)
+    assert presupuesto.monto_consumido == Decimal("7870.00")
+
+    anulada = servicio.anular(usuario.id, resultado.compra_id)
+
+    assert anulada.estado == EstadoCompra.ANULADA
+    assert anulada.presupuestos_devueltos == (presupuesto.id,)
+    assert presupuesto.monto_consumido == Decimal("0.00")
+    compra = servicio.compras.obtener_de_usuario(resultado.compra_id, usuario.id)
+    assert compra is not None, "la compra sigue en el historial"
+    assert compra.estado == EstadoCompra.ANULADA
+    assert compra.requiere_revision is False
+
+
+def test_una_compra_anulada_no_se_anula_ni_se_corrige_de_nuevo(
+    servicio: ConciliacionService, usuario: Usuario, cuenta_correo: CuentaCorreo, sesion: Session
+) -> None:
+    comprobante = _comprobante(sesion, cuenta_correo)
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
+    servicio.anular(usuario.id, resultado.compra_id)
+
+    with pytest.raises(CompraYaAnulada):
+        servicio.anular(usuario.id, resultado.compra_id)
+    with pytest.raises(CompraYaAnulada):
+        servicio.resolver_revision(usuario.id, resultado.compra_id, None, 1)
+
+
+def test_anular_una_compra_ajena_falla(servicio: ConciliacionService, usuario: Usuario) -> None:
+    with pytest.raises(RecursoNoEncontrado):
+        servicio.anular(usuario.id, 999999)
+
+
+def test_el_presupuesto_nunca_queda_negativo_al_anular(
+    servicio: ConciliacionService,
+    presupuestos: PresupuestoService,
+    categorias: CategoriaService,
+    usuario: Usuario,
+    cuenta_correo: CuentaCorreo,
+    sesion: Session,
+) -> None:
+    categoria = categorias.crear(
+        CrearCategoriaComando(usuario_id=usuario.id, nombre="Supermercado", color_hex="#16A34A")
+    )
+    presupuesto = presupuestos.crear_o_actualizar(
+        usuario.id, categoria.id, 2026, 8, Moneda.CRC, Decimal("100000")
+    )
+    comprobante = _comprobante(sesion, cuenta_correo)
+    resultado = servicio.conciliar(_comando(usuario.id, comprobante, _parseado()))
+    servicio.resolver_revision(usuario.id, resultado.compra_id, None, categoria.id)
+    # Alguien corrigió el consumido a mano por debajo de lo que esta compra sumó.
+    presupuesto.monto_consumido = Decimal("100.00")
+    sesion.commit()
+
+    servicio.anular(usuario.id, resultado.compra_id)
+
+    assert presupuesto.monto_consumido == Decimal("0")

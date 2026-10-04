@@ -115,6 +115,7 @@ def _sembrar_compras(sesion: Session, usuario: Usuario, cuantas: int, desde: int
         sesion.add(
             LineaCompra(
                 compra_id=compra.id,
+                usuario_id=compra.usuario_id,
                 descripcion="Compra completa",
                 cantidad=1,
                 precio_unitario=10000,
