@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from app.business.errors import DatosInvalidos, RecursoNoEncontrado, ReglaDeNegocioViolada
+from app.business.errors import (
+    CategoriaNoEsHoja,
+    ComercioYaExiste,
+    DatosInvalidos,
+    RecursoNoEncontrado,
+)
 from app.business.parsers.comprobante_bac import ComprobanteParseado
 from app.data.models.comercio import Comercio
 from app.data.models.comercio_categoria_sugerida import ComercioCategoriaSugerida
@@ -85,6 +90,43 @@ class ComercioService:
         self.comercios.sesion.commit()
         return comercio
 
+    def crear(
+        self,
+        nombre: str,
+        identificacion_tributaria: str | None = None,
+        provincia: str | None = None,
+    ) -> Comercio:
+        """Da de alta un comercio en el catálogo compartido.
+
+        A diferencia de `resolver_o_crear` -que usa la ingesta y reutiliza el
+        que ya exista- esto es una alta explícita de quien administra el
+        catálogo: si el nombre normalizado ya está, se rechaza en vez de
+        devolver el existente en silencio.
+        """
+        nombre = nombre.strip()
+        if not nombre:
+            raise DatosInvalidos("El nombre del comercio no puede venir vacío.")
+        normalizado = normalizar_nombre_comercio(nombre)
+        if self.comercios.buscar_por_nombre_normalizado(normalizado) is not None:
+            raise ComercioYaExiste(f"Ya existe el comercio '{normalizado}' en el catálogo.")
+        if identificacion_tributaria is not None and not (
+            identificacion_tributaria.isdigit() and 9 <= len(identificacion_tributaria) <= 12
+        ):
+            raise DatosInvalidos("La identificación tributaria debe tener entre 9 y 12 dígitos.")
+        comercio = Comercio(
+            nombre=nombre,
+            nombre_normalizado=normalizado,
+            identificacion_tributaria=identificacion_tributaria,
+            provincia=provincia.strip() if provincia else None,
+        )
+        self.comercios.agregar(comercio)
+        self.comercios.sesion.commit()
+        return comercio
+
+    def listar(self) -> list[Comercio]:
+        """Todo el catálogo compartido, por nombre."""
+        return self.comercios.listar_por_nombre()
+
     def obtener(self, comercio_id: int) -> Comercio:
         comercio = self.comercios.obtener_por_id(comercio_id)
         if comercio is None:
@@ -126,7 +168,7 @@ class ComercioService:
                 f"La categoría {categoria_id} no existe en la cuenta de este titular."
             )
         if not categoria.es_hoja:
-            raise ReglaDeNegocioViolada(
+            raise CategoriaNoEsHoja(
                 f"'{categoria.nombre}' es una categoría padre; solo se puede sugerir una hoja, "
                 "porque las categorías padre totalizan y no reciben gasto directo."
             )

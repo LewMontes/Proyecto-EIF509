@@ -27,9 +27,28 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from app.business.errors import DatosInvalidos, RecursoNoEncontrado, ReglaDeNegocioViolada
+from app.business.errors import (
+    CategoriaInactiva,
+    CategoriaNoEsHoja,
+    CompraSinRenglones,
+    CuadreFueraDeTolerancia,
+    DatosInvalidos,
+    DescuentoExcedido,
+    FechaFutura,
+    MetodoPagoInactivo,
+    RecursoNoEncontrado,
+    RenglonSinCategoria,
+    TipoDeCambioRequerido,
+    UsuarioInactivo,
+)
 from app.business.services.bitacora_service import Actor, BitacoraComprasService
-from app.business.services.categorizacion import primera_regla_que_coincide
+from app.business.services.categorizacion import (
+    CadenaDeCategorizacion,
+    CategoriaElegidaPorElTitular,
+    ContextoDeCategorizacion,
+    ReglasDelTitular,
+    SugerenciaDelComercio,
+)
 from app.business.services.comercio_service import ComercioService
 from app.business.services.presupuesto_service import PresupuestoService
 from app.data.models.compra import Compra
@@ -225,16 +244,16 @@ class RegistrarCompraService:
         self._validar_fecha(comando.fecha)
 
         if not comando.lineas:
-            raise DatosInvalidos("La compra tiene que tener al menos un renglón.")
+            raise CompraSinRenglones("La compra tiene que tener al menos un renglón.")
 
         comercio = self.comercios.obtener(comando.comercio_id)
         metodo_pago = self._resolver_metodo_pago(comando.usuario_id, comando.metodo_pago_id)
 
-        # Las reglas se leen una sola vez para toda la compra, no una vez por
-        # renglón: son las mismas para todos y no cambian a mitad del proceso.
-        reglas_activas = self.reglas.listar_activas_ordenadas(comando.usuario_id)
+        # Una sola cadena para toda la compra: su eslabón de reglas las lee una
+        # vez y las reutiliza para todos los renglones, que comparten titular.
+        cadena = self._cadena_de_categorizacion()
         renglones = [
-            self._calcular_renglon(comando, linea, comercio.nombre_normalizado, reglas_activas)
+            self._calcular_renglon(comando, linea, comercio.nombre_normalizado, cadena)
             for linea in comando.lineas
         ]
 
@@ -272,9 +291,7 @@ class RegistrarCompraService:
         )
         self.compras.agregar(compra)  # flush: ya tiene compra.id de acá en adelante
 
-        lineas_registradas = tuple(
-            self._escribir_renglon(compra.id, renglon) for renglon in renglones
-        )
+        lineas_registradas = tuple(self._escribir_renglon(compra, renglon) for renglon in renglones)
 
         for regla in {id(r.regla): r.regla for r in renglones if r.regla is not None}.values():
             regla.veces_aplicada += 1
@@ -308,13 +325,13 @@ class RegistrarCompraService:
 
     def _validar_fecha(self, fecha: date) -> None:
         if fecha > date.today():
-            raise DatosInvalidos("La fecha de la compra no puede ser futura.")
+            raise FechaFutura("La fecha de la compra no puede ser futura.")
 
     def _validar_descuento_global(self, descuento: Decimal, subtotal: Decimal) -> Decimal:
         if descuento < 0:
             raise DatosInvalidos("El descuento de la compra no puede ser negativo.")
         if descuento > subtotal:
-            raise DatosInvalidos(
+            raise DescuentoExcedido(
                 f"El descuento ({descuento}) no puede superar el subtotal "
                 f"de la compra ({subtotal})."
             )
@@ -334,7 +351,7 @@ class RegistrarCompraService:
             return
         diferencia = abs(total - total_declarado)
         if diferencia > DIFERENCIA_MAXIMA_CONTRA_EL_RECIBO:
-            raise ReglaDeNegocioViolada(
+            raise CuadreFueraDeTolerancia(
                 f"El total calculado ({total}) no cuadra con el del recibo ({total_declarado}): "
                 f"se diferencian en {diferencia} y el máximo es "
                 f"{DIFERENCIA_MAXIMA_CONTRA_EL_RECIBO}."
@@ -350,7 +367,7 @@ class RegistrarCompraService:
                 )
             return Decimal("1")
         if comando.tipo_cambio_aplicado is None:
-            raise DatosInvalidos(
+            raise TipoDeCambioRequerido(
                 f"Una compra en {comando.moneda.value} necesita el tipo de cambio de su fecha. "
                 "No se usa el de hoy: no es el que se pagó."
             )
@@ -367,7 +384,7 @@ class RegistrarCompraService:
                 f"El método de pago {metodo_pago_id} no existe en esta cuenta."
             )
         if not metodo_pago.activo:
-            raise ReglaDeNegocioViolada("Ese método de pago está desactivado.")
+            raise MetodoPagoInactivo("Ese método de pago está desactivado.")
         return metodo_pago
 
     # ---- cálculo y categorización de un renglón ----
@@ -377,7 +394,7 @@ class RegistrarCompraService:
         comando: RegistrarCompraComando,
         linea: LineaDeCompraComando,
         comercio_normalizado: str,
-        reglas_activas: list[ReglaCategorizacion],
+        cadena: CadenaDeCategorizacion,
     ) -> _RenglonCalculado:
         descripcion = linea.descripcion.strip()
         if not descripcion:
@@ -391,7 +408,7 @@ class RegistrarCompraService:
 
         bruto = linea.cantidad * linea.precio_unitario
         if linea.descuento > bruto:
-            raise DatosInvalidos(
+            raise DescuentoExcedido(
                 f"El descuento de '{descripcion}' ({linea.descuento}) supera el monto del "
                 f"renglón ({_redondear(bruto)})."
             )
@@ -403,7 +420,7 @@ class RegistrarCompraService:
         impuesto = Decimal("0") if linea.exento_impuesto else _redondear(subtotal * TASA_IVA)
 
         categoria_id, categoria_nombre, regla = self._resolver_categoria(
-            comando.usuario_id, comando.comercio_id, linea, comercio_normalizado, reglas_activas
+            comando.usuario_id, comando.comercio_id, linea, comercio_normalizado, cadena
         )
         return _RenglonCalculado(
             comando=linea,
@@ -414,58 +431,71 @@ class RegistrarCompraService:
             regla=regla,
         )
 
+    def _cadena_de_categorizacion(self) -> CadenaDeCategorizacion:
+        """La cadena del registro manual: el titular, sus reglas, la sugerencia del comercio.
+
+        Los mismos dos últimos eslabones que la ingesta (`ConciliacionService`),
+        con uno delante: acá sí hay una persona eligiendo, y su decisión se
+        evalúa antes que cualquier regla.
+        """
+        return CadenaDeCategorizacion(
+            [
+                CategoriaElegidaPorElTitular(),
+                ReglasDelTitular(self.reglas.listar_activas_ordenadas),
+                SugerenciaDelComercio(self.comercios.categoria_sugerida_para),
+            ]
+        )
+
     def _resolver_categoria(
         self,
         usuario_id: int,
         comercio_id: int,
         linea: LineaDeCompraComando,
         comercio_normalizado: str,
-        reglas_activas: list[ReglaCategorizacion],
+        cadena: CadenaDeCategorizacion,
     ) -> tuple[int, str, ReglaCategorizacion | None]:
-        """La categoría del renglón: la que el titular eligió, o la que la cadena sugiere.
+        """La categoría del renglón, según el primer eslabón de la cadena que la sepa.
 
-        Cuando el titular la eligió, se valida y se usa -su decisión gana
-        sobre cualquier regla: corregir es justamente lo que hace aprender al
-        sistema. Cuando no, se recorre la misma cadena que la ingesta:
-        regla por prioridad, luego la sugerencia del comercio.
+        La cadena decide **cuál**; este método valida que esa categoría se
+        pueda usar -que sea del titular, hoja y activa-, venga de donde venga.
+        Si ningún eslabón la resuelve, la compra no se registra.
         """
-        if linea.categoria_id is not None:
-            categoria = self._categoria_del_titular(linea.categoria_id, usuario_id)
-            return categoria.id, categoria.nombre, None
-
-        regla = primera_regla_que_coincide(reglas_activas, comercio_normalizado)
-        sugerida_id = (
-            regla.categoria_destino_id
-            if regla is not None
-            else self.comercios.categoria_sugerida_para(usuario_id, comercio_id)
+        resuelta = cadena.resolver(
+            ContextoDeCategorizacion(
+                usuario_id=usuario_id,
+                comercio_id=comercio_id,
+                comercio_normalizado=comercio_normalizado,
+                categoria_elegida_id=linea.categoria_id,
+            )
         )
-        if sugerida_id is None:
-            raise ReglaDeNegocioViolada(
+        if resuelta is None:
+            raise RenglonSinCategoria(
                 f"No hay categoría para el renglón '{linea.descripcion.strip()}' y una compra "
                 "registrada no admite renglones sin clasificar: indicá una, o asignale una "
                 "categoría sugerida al comercio."
             )
-        categoria = self._categoria_del_titular(sugerida_id, usuario_id)
-        return categoria.id, categoria.nombre, regla
+        categoria = self._categoria_del_titular(resuelta.categoria_id, usuario_id)
+        return categoria.id, categoria.nombre, resuelta.regla
 
     def _categoria_del_titular(self, categoria_id: int, usuario_id: int):
         categoria = self.categorias.obtener_de_usuario(categoria_id, usuario_id)
         if categoria is None:
             raise RecursoNoEncontrado(f"La categoría {categoria_id} no existe en esta cuenta.")
         if not categoria.es_hoja:
-            raise ReglaDeNegocioViolada(
+            raise CategoriaNoEsHoja(
                 f"'{categoria.nombre}' es una categoría padre; solo las hojas reciben gasto "
                 "directo, las padre totalizan."
             )
         if not categoria.activa:
-            raise ReglaDeNegocioViolada(f"La categoría '{categoria.nombre}' está desactivada.")
+            raise CategoriaInactiva(f"La categoría '{categoria.nombre}' está desactivada.")
         return categoria
 
     # ---- escritura ----
 
-    def _escribir_renglon(self, compra_id: int, renglon: _RenglonCalculado) -> LineaRegistrada:
+    def _escribir_renglon(self, compra: Compra, renglon: _RenglonCalculado) -> LineaRegistrada:
         linea = LineaCompra(
-            compra_id=compra_id,
+            compra_id=compra.id,
+            usuario_id=compra.usuario_id,
             categoria_id=renglon.categoria_id,
             descripcion=renglon.comando.descripcion.strip()[:LARGO_MAXIMO_DESCRIPCION],
             cantidad=renglon.comando.cantidad,
@@ -618,4 +648,4 @@ class RegistrarCompraService:
         if usuario is None:
             raise RecursoNoEncontrado(f"El usuario {usuario_id} no existe.")
         if not usuario.activo:
-            raise ReglaDeNegocioViolada(f"El usuario {usuario_id} esta desactivado.")
+            raise UsuarioInactivo(f"El usuario {usuario_id} esta desactivado.")

@@ -3,7 +3,13 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
-from app.business.errors import DatosInvalidos, RecursoNoEncontrado, ReglaDeNegocioViolada
+from app.business.errors import (
+    CategoriaNoEsHoja,
+    DatosInvalidos,
+    PresupuestoYaExiste,
+    RecursoNoEncontrado,
+    UsuarioInactivo,
+)
 from app.data.models.enums import EstadoPresupuesto, Moneda
 from app.data.models.presupuesto import Presupuesto
 from app.data.repositories.categoria_repository import CategoriaRepository
@@ -89,7 +95,7 @@ class PresupuestoService:
         if categoria is None:
             raise RecursoNoEncontrado(f"La categoría {categoria_id} no existe en esta cuenta.")
         if not categoria.es_hoja:
-            raise ReglaDeNegocioViolada(
+            raise CategoriaNoEsHoja(
                 f"'{categoria.nombre}' es una categoría padre; el presupuesto se pone en la "
                 "hoja que recibe el gasto, no en la que solo totaliza."
             )
@@ -104,6 +110,56 @@ class PresupuestoService:
         presupuesto.umbral_alerta = umbral_alerta
 
         self.presupuestos.agregar(presupuesto)
+        self.presupuestos.sesion.commit()
+        return presupuesto
+
+    def crear(
+        self,
+        usuario_id: int,
+        categoria_id: int,
+        anio: int,
+        mes: int,
+        moneda: Moneda,
+        monto_limite: Decimal,
+        umbral_alerta: int = 80,
+    ) -> Presupuesto:
+        """Crea el presupuesto del período; si ya hay uno, lo rechaza.
+
+        Es la creación estricta que usa la API: un `POST` que a veces crea y a
+        veces modifica no puede responder siempre `201`. Corregir un
+        presupuesto que ya existe es `actualizar`.
+        """
+        self._asegurar_usuario_activo(usuario_id)
+        if self.presupuestos.buscar(usuario_id, categoria_id, anio, mes) is not None:
+            raise PresupuestoYaExiste(
+                f"Ya hay un presupuesto para esa categoría en {anio}-{mes:02d}."
+            )
+        return self.crear_o_actualizar(
+            usuario_id, categoria_id, anio, mes, moneda, monto_limite, umbral_alerta
+        )
+
+    def obtener(self, usuario_id: int, presupuesto_id: int) -> Presupuesto:
+        """El presupuesto, solo si pertenece al titular que lo pide."""
+        return self._obtener_del_titular(usuario_id, presupuesto_id)
+
+    def actualizar(
+        self, usuario_id: int, presupuesto_id: int, monto_limite: Decimal, umbral_alerta: int
+    ) -> Presupuesto:
+        """Corrige el límite y el umbral de un presupuesto del titular.
+
+        No cambia la categoría ni el período: eso sería otro presupuesto. Y no
+        toca `monto_consumido`, que solo se mueve con las compras.
+        """
+        presupuesto = self._obtener_del_titular(usuario_id, presupuesto_id)
+        if monto_limite <= 0:
+            raise DatosInvalidos("El límite del presupuesto debe ser mayor que cero.")
+        if not (UMBRAL_MINIMO <= umbral_alerta <= UMBRAL_MAXIMO):
+            raise DatosInvalidos(
+                f"El umbral de alerta debe ser un porcentaje entre "
+                f"{UMBRAL_MINIMO} y {UMBRAL_MAXIMO}."
+            )
+        presupuesto.monto_limite = monto_limite
+        presupuesto.umbral_alerta = umbral_alerta
         self.presupuestos.sesion.commit()
         return presupuesto
 
@@ -181,4 +237,4 @@ class PresupuestoService:
         if usuario is None:
             raise RecursoNoEncontrado(f"El usuario {usuario_id} no existe.")
         if not usuario.activo:
-            raise ReglaDeNegocioViolada(f"El usuario {usuario_id} esta desactivado.")
+            raise UsuarioInactivo(f"El usuario {usuario_id} esta desactivado.")
