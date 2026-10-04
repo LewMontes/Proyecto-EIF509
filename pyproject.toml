@@ -29,6 +29,9 @@ dependencies = [
     # hashea las contraseñas de login. Costo fijo y sal incluida en el hash
     # -sin parámetros que ajustar a mano, a diferencia de un KDF genérico.
     "bcrypt>=4.1",
+    # firma y verifica los JWT de acceso de la API (HS256). Solo eso: la
+    # contraseña se sigue verificando con bcrypt, el token no la reemplaza.
+    "pyjwt>=2.8",
     # escribe la bitácora de trazabilidad de compras en MongoDB. Driver
     # síncrono -coherente con que el resto de la app tampoco es async.
     "pymongo>=4.8",

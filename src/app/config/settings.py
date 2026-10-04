@@ -6,6 +6,7 @@ ningun archivo.
 """
 
 import os
+import secrets
 import warnings
 from dataclasses import dataclass
 from functools import lru_cache
@@ -100,6 +101,19 @@ class Configuracion:
     mongo_url: str = "mongodb://gastonomo:gastonomo_local@localhost:27017"
     mongo_db: str = "gastonomo_app"
 
+    # Clave con la que se firman los JWT de acceso (HS256), y cuántos minutos
+    # vive cada uno. Quien conozca la clave puede fabricar un token de
+    # cualquier cuenta, así que la de verdad va en `.env` y nunca en el
+    # repositorio. Sin ella se genera una efímera -ver `_obtener_jwt_secreto`.
+    jwt_secreto: str = ""
+    jwt_minutos: int = 60
+
+    # La cuenta de administración que `sembrar_administrador()` deja creada al
+    # arrancar. Sin las dos variables no se crea ninguna: no hay un
+    # administrador con una contraseña por defecto que alguien pueda adivinar.
+    admin_correo: str = ""
+    admin_contrasena: str = ""
+
 
 @lru_cache
 def obtener_configuracion() -> Configuracion:
@@ -151,7 +165,31 @@ def obtener_configuracion() -> Configuracion:
             "GASTONOMO_MONGO_URL", "mongodb://gastonomo:gastonomo_local@localhost:27017"
         ),
         mongo_db=os.getenv("GASTONOMO_MONGO_DB", "gastonomo_app"),
+        jwt_secreto=_obtener_jwt_secreto(),
+        jwt_minutos=int(os.getenv("GASTONOMO_JWT_MINUTOS", "60")),
+        admin_correo=os.getenv("GASTONOMO_ADMIN_CORREO", ""),
+        admin_contrasena=os.getenv("GASTONOMO_ADMIN_CONTRASENA", ""),
     )
+
+
+def _obtener_jwt_secreto() -> str:
+    """Lee la clave de firma de los JWT, o genera una efimera para desarrollo.
+
+    Mismo criterio que la clave de cifrado de tokens de abajo: una clave
+    generada al vuelo deja levantar el proyecto la primera vez, pero cambia en
+    cada arranque -todos los tokens emitidos antes dejan de valer-, asi que se
+    avisa por warning en vez de fallar.
+    """
+    secreto = os.getenv("GASTONOMO_JWT_SECRETO")
+    if secreto:
+        return secreto
+    warnings.warn(
+        "GASTONOMO_JWT_SECRETO no esta definida: se genero una clave temporal valida "
+        "solo para este arranque. Los tokens emitidos ahora dejan de valer al reiniciar. "
+        'Definila con: python -c "import secrets; print(secrets.token_urlsafe(48))"',
+        stacklevel=2,
+    )
+    return secrets.token_urlsafe(48)
 
 
 def _obtener_origenes_permitidos() -> list[str]:

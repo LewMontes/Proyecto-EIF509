@@ -5,9 +5,12 @@ from collections.abc import Iterator
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.business.seguridad.contrasenas import hashear_contrasena
 from app.config.settings import obtener_configuracion
 from app.data.models.base import Base
 from app.data.models.categoria_estandar import CategoriaEstandar
+from app.data.models.enums import RolUsuario
+from app.data.models.usuario import Usuario
 
 # Mismos códigos/nombres/colores que db/postgres/seeds/afterMigrate__datos_de_ejemplo.sql
 # -es la misma taxonomía del Laboratorio 2, tal cual, ahora sembrada por la
@@ -96,6 +99,34 @@ def sembrar_categorias_estandar() -> None:
         if not nuevas:
             return
         sesion.add_all(nuevas)
+        sesion.commit()
+
+
+def sembrar_administrador() -> None:
+    """Deja creada la cuenta de administración, si el ambiente la define.
+
+    Registrarse por la API siempre crea un `TITULAR` -si el rol se pudiera
+    pedir, cualquiera se registraría como administrador-, así que el primer
+    `ADMIN` tiene que nacer por fuera de la API. Nace acá, de
+    `GASTONOMO_ADMIN_CORREO` y `GASTONOMO_ADMIN_CONTRASENA`.
+
+    Sin esas dos variables no hace nada. Y si la cuenta ya existe no la toca:
+    correr esto en cada arranque no le pisa la contraseña a nadie.
+    """
+    correo = _configuracion.admin_correo.strip().lower()
+    if not correo or not _configuracion.admin_contrasena:
+        return
+    with FabricaDeSesiones() as sesion:
+        if sesion.scalars(select(Usuario).where(Usuario.correo == correo)).first() is not None:
+            return
+        sesion.add(
+            Usuario(
+                nombre_completo="Administración",
+                correo=correo,
+                contrasena_hash=hashear_contrasena(_configuracion.admin_contrasena),
+                rol=RolUsuario.ADMIN,
+            )
+        )
         sesion.commit()
 
 
