@@ -49,12 +49,6 @@ class SaludResponse(BaseModel):
     version: str
 
 
-class ErrorResponse(BaseModel):
-    """Forma unica de los errores traducidos a HTTP."""
-
-    detalle: str
-
-
 # ---- autenticación y cuentas ----
 
 

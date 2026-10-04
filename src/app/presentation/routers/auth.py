@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from app.business.services.auth_service import IniciarSesionComando
 from app.presentation.dependencies import ServicioDeAuth
 from app.presentation.rutas import API_V1
-from app.presentation.schemas import ErrorResponse, LoginRequest, TokenResponse
+from app.presentation.schemas import LoginRequest, TokenResponse
 
 router = APIRouter(prefix=f"{API_V1}/auth", tags=["auth"])
 
@@ -19,7 +19,6 @@ router = APIRouter(prefix=f"{API_V1}/auth", tags=["auth"])
     "/login",
     response_model=TokenResponse,
     summary="Iniciar sesión y obtener el token de acceso",
-    responses={401: {"model": ErrorResponse, "description": "Correo o contraseña incorrectos."}},
 )
 def login(peticion: LoginRequest, servicio: ServicioDeAuth) -> TokenResponse:
     """Canjea correo y contraseña por un JWT.
