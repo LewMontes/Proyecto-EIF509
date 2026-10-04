@@ -40,7 +40,7 @@ from app.business.services.regla_categorizacion_service import ReglaCategorizaci
 from app.business.services.tipo_cambio_service import TipoCambioService
 from app.business.services.usuario_service import UsuarioService
 from app.config.cliente_http import obtener_cliente_http
-from app.config.cliente_mongo import obtener_coleccion_bitacora
+from app.config.cliente_mongo import marcar_mongo_caido, obtener_coleccion_bitacora
 from app.config.database import obtener_sesion
 from app.config.settings import obtener_configuracion
 from app.data.models.enums import RolUsuario
@@ -218,13 +218,16 @@ def obtener_servicio_de_bitacora() -> BitacoraComprasService:
     No recibe la sesion de SQLAlchemy: la bitacora vive en Mongo, no en
     PostgreSQL, y no participa de la transaccion de negocio (ver ADR-002).
 
-    `obtener_coleccion_bitacora()` nunca falla por si sola -la conexion de
-    PyMongo es perezosa- asi que este servicio siempre se puede construir,
-    incluso si Mongo termina no respondiendo cuando de verdad se intenta
-    escribir. Ese caso lo absorbe `BitacoraRepository`, que devuelve `False`
-    en vez de propagar el error.
+    Este servicio siempre se puede construir, este Mongo arriba o no. Si no
+    respondio hace poco, `obtener_coleccion_bitacora()` devuelve `None` y la
+    bitacora es un no-op; si deja de responder a mitad de la peticion, lo
+    absorbe `BitacoraRepository`, que deja de intentar y avisa por
+    `marcar_mongo_caido` para que las peticiones siguientes no vuelvan a
+    esperarlo.
     """
-    return BitacoraComprasService(BitacoraRepository(obtener_coleccion_bitacora()))
+    return BitacoraComprasService(
+        BitacoraRepository(obtener_coleccion_bitacora(), al_fallar=marcar_mongo_caido)
+    )
 
 
 ServicioDeBitacora = Annotated[BitacoraComprasService, Depends(obtener_servicio_de_bitacora)]

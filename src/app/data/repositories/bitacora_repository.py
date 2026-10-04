@@ -20,9 +20,17 @@ devuelven `False` o `None`. Es la traduccion, en el contrato del repositorio,
 de lo que decide ADR-002 -la bitacora **explica** lo que paso, no lo **decide**,
 y ningun total del sistema depende de ella. Que Mongo este caido no puede
 revertir una compra que PostgreSQL ya confirmo.
+
+**Al primer fallo, el repositorio deja de intentar.** Una compra escribe varios
+eventos seguidos, y cada operacion contra un Mongo caido espera su timeout
+completo: insistir evento por evento multiplicaba esa espera. Despues del
+primer `PyMongoError` el repositorio suelta la coleccion -queda como si nunca
+hubiera tenido una- y avisa por `al_fallar` para que quien arma el repositorio
+tampoco vuelva a probar enseguida.
 """
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -40,8 +48,17 @@ class BitacoraRepository:
     exigir que todo el sistema sepa de Mongo para poder arrancar.
     """
 
-    def __init__(self, coleccion: Collection | None) -> None:
+    def __init__(
+        self, coleccion: Collection | None, al_fallar: Callable[[], None] | None = None
+    ) -> None:
         self._coleccion = coleccion
+        self._al_fallar = al_fallar
+
+    def _dejar_de_intentar(self) -> None:
+        """Mongo no respondio: este repositorio ya no vuelve a probar."""
+        self._coleccion = None
+        if self._al_fallar is not None:
+            self._al_fallar()
 
     @property
     def disponible(self) -> bool:
@@ -88,6 +105,7 @@ class BitacoraRepository:
                 compra_id,
                 exc_info=True,
             )
+            self._dejar_de_intentar()
             return False
         return True
 
@@ -124,4 +142,5 @@ class BitacoraRepository:
             _registro.warning(
                 "No se pudo leer la bitacora de la compra %s.", compra_id, exc_info=True
             )
+            self._dejar_de_intentar()
             return None

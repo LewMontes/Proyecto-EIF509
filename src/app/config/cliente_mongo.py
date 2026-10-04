@@ -11,6 +11,16 @@ Mongo esté apagado. Quien de verdad necesita tolerar que Mongo no responda
 es `BitacoraComprasService`, que envuelve cada escritura en su propio
 `try/except` -ver la nota en ese archivo.
 
+**Cuando Mongo no responde, se deja de insistir por un rato.** Cada operación
+contra un Mongo apagado espera sus 3 segundos de `serverSelectionTimeoutMS`
+antes de rendirse, y registrar una compra escribe entre cinco y diez eventos:
+sin este corte, una sola petición a la API tardaba más de medio minuto solo en
+esperar a un servidor que no estaba. Ahora, al primer fallo se anota hasta
+cuándo no vale la pena volver a probar (`_REINTENTAR_TRAS_SEGUNDOS`), y hasta
+entonces `obtener_coleccion_bitacora` devuelve `None` -que `BitacoraRepository`
+trata como «no hay bitácora»-. Pasado ese tiempo se vuelve a intentar sola, así
+que levantar Mongo después no exige reiniciar la aplicación.
+
 Escribe en una base de Mongo distinta a la que siembra
 `db/mongo/init/` para el Laboratorio 2 (ver la nota de `mongo_db` en
 `settings.py`) -por eso, a diferencia del script de esa carpeta, esta
@@ -18,6 +28,8 @@ colección se asegura con el mismo validador acá mismo, en Python: no hay
 ningún script `docker-entrypoint-initdb.d` que la cree para una base que
 Mongo nunca inicializa sola.
 """
+
+import time
 
 from pymongo import MongoClient
 from pymongo.collection import Collection
@@ -27,6 +39,11 @@ from app.config.settings import obtener_configuracion
 
 _cliente: MongoClient | None = None
 _coleccion_asegurada = False
+
+# Cuánto se espera antes de volver a probar un Mongo que no respondió, y hasta
+# qué instante (del reloj monotónico) dura esa espera.
+_REINTENTAR_TRAS_SEGUNDOS = 30.0
+_sin_mongo_hasta = 0.0
 
 # Mismo vocabulario cerrado que db/mongo/init/01_bitacora_compras.js y
 # business/services/bitacora_service.py -las tres listas tienen que
@@ -113,9 +130,21 @@ _VALIDADOR = {
 }
 
 
-def obtener_coleccion_bitacora() -> Collection:
-    """Entrega la colección `bitacora_compras` de la app, asegurando su validador."""
+def marcar_mongo_caido() -> None:
+    """Anota que Mongo no respondió: no se lo vuelve a probar por un rato."""
+    global _sin_mongo_hasta
+    _sin_mongo_hasta = time.monotonic() + _REINTENTAR_TRAS_SEGUNDOS
+
+
+def obtener_coleccion_bitacora() -> Collection | None:
+    """Entrega la colección `bitacora_compras` de la app, asegurando su validador.
+
+    `None` si Mongo no respondió hace poco: quien la recibe trabaja sin
+    bitácora en vez de esperar otra vez a un servidor que no está.
+    """
     global _cliente, _coleccion_asegurada
+    if time.monotonic() < _sin_mongo_hasta:
+        return None
     if _cliente is None:
         configuracion = obtener_configuracion()
         _cliente = MongoClient(configuracion.mongo_url, serverSelectionTimeoutMS=3000)
@@ -141,19 +170,19 @@ def obtener_coleccion_bitacora() -> Collection:
                 )
             _coleccion_asegurada = True
         except PyMongoError:
-            # Sin Mongo disponible ahora mismo, se reintenta en la próxima
-            # llamada -BitacoraComprasService igual tolera que la colección
-            # no tenga validador puesto: la suya propia (TIPOS_DE_EVENTO) es
-            # la que de verdad protege la escritura.
-            pass
+            # Sin Mongo disponible ahora mismo: se trabaja sin bitácora y se
+            # reintenta cuando pase la espera.
+            marcar_mongo_caido()
+            return None
 
     return base["bitacora_compras"]
 
 
 def cerrar_cliente_mongo() -> None:
     """Cierra el cliente compartido. Se llama al apagar la aplicación."""
-    global _cliente, _coleccion_asegurada
+    global _cliente, _coleccion_asegurada, _sin_mongo_hasta
     if _cliente is not None:
         _cliente.close()
         _cliente = None
     _coleccion_asegurada = False
+    _sin_mongo_hasta = 0.0

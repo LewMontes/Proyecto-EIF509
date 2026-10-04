@@ -141,3 +141,25 @@ def test_un_mongo_caido_no_revienta_al_leer() -> None:
     servicio = BitacoraComprasService(BitacoraRepository(_ColeccionQueFalla()))
 
     assert servicio.bitacora_de(7) is None
+
+
+def test_al_primer_fallo_el_repositorio_deja_de_insistir() -> None:
+    """Cada operación contra un Mongo caído espera su timeout completo.
+
+    Una compra escribe varios eventos seguidos: si el repositorio insistiera
+    con cada uno, una sola petición esperaría esa suma. Después del primer
+    fallo suelta la colección y avisa, una sola vez.
+    """
+    coleccion = _ColeccionQueFalla()
+    avisos: list[str] = []
+    repositorio = BitacoraRepository(coleccion, al_fallar=lambda: avisos.append("caido"))
+    servicio = BitacoraComprasService(repositorio)
+
+    for _ in range(5):
+        servicio.registrar_evento(
+            7, 1, "REGISTRADA", "PARSEO_COMPROBANTE", {}, Actor(tipo="SERVICIO")
+        )
+
+    assert repositorio.disponible is False
+    assert avisos == ["caido"]
+    assert servicio.bitacora_de(7) is None
