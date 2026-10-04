@@ -12,15 +12,29 @@ eso es `POST /comprobantes/{id}/reintentos` -un sustantivo-.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
-from app.business.services.comprobante_service import RegistrarComprobanteComando
+from app.business.services.comprobante_service import (
+    ComprobanteService,
+    RegistrarComprobanteComando,
+)
 from app.data.models.enums import EstadoComprobante
+from app.data.paginacion import SolicitudDePagina
 from app.presentation.dependencies import ServicioDeComprobantes, UsuarioActual
+from app.presentation.paginacion import (
+    PaginaResponse,
+    parametros_de_pagina,
+    respuesta_de_pagina,
+)
 from app.presentation.rutas import API_V1, ubicacion
 from app.presentation.schemas import ComprobanteResponse, IdDeRuta, RegistrarComprobanteRequest
 
 router = APIRouter(prefix=f"{API_V1}/comprobantes", tags=["comprobantes"])
+
+PaginaDeComprobantes = Annotated[
+    SolicitudDePagina,
+    Depends(parametros_de_pagina(ComprobanteService.CAMPOS_ORDENABLES, "recibido_en,desc")),
+]
 
 
 @router.post(
@@ -67,17 +81,23 @@ def registrar(
 
 
 @router.get(
-    "", response_model=list[ComprobanteResponse], summary="Listar los comprobantes del titular"
+    "",
+    response_model=PaginaResponse[ComprobanteResponse],
+    summary="Listar los comprobantes del titular",
 )
 def listar(
     servicio: ServicioDeComprobantes,
     usuario: UsuarioActual,
+    pagina: PaginaDeComprobantes,
     estado: Annotated[
         EstadoComprobante | None,
         Query(description="Solo los que están en ese estado de la ingesta."),
     ] = None,
-) -> list[ComprobanteResponse]:
-    return [ComprobanteResponse.model_validate(c) for c in servicio.listar(usuario.id, estado)]
+) -> PaginaResponse[ComprobanteResponse]:
+    """Paginada. `?estado=PARSEADO` trae los que están esperando un reintento."""
+    return respuesta_de_pagina(
+        servicio.buscar(usuario.id, estado, pagina), ComprobanteResponse.model_validate
+    )
 
 
 @router.get(

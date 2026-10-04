@@ -8,14 +8,27 @@ Es el router donde conviven los tres niveles de acceso de la API:
 - **Solo `ADMIN`** · `GET /usuarios` -la lista de todas las cuentas.
 """
 
-from fastapi import APIRouter, Response, status
+from typing import Annotated
 
-from app.business.services.usuario_service import RegistrarUsuarioComando
+from fastapi import APIRouter, Depends, Response, status
+
+from app.business.services.usuario_service import RegistrarUsuarioComando, UsuarioService
+from app.data.paginacion import SolicitudDePagina
 from app.presentation.dependencies import Administrador, ServicioDeUsuarios, UsuarioActual
+from app.presentation.paginacion import (
+    PaginaResponse,
+    parametros_de_pagina,
+    respuesta_de_pagina,
+)
 from app.presentation.rutas import API_V1, ubicacion
 from app.presentation.schemas import IdDeRuta, RegistrarUsuarioRequest, UsuarioResponse
 
 router = APIRouter(prefix=f"{API_V1}/usuarios", tags=["usuarios"])
+
+PaginaDeUsuarios = Annotated[
+    SolicitudDePagina,
+    Depends(parametros_de_pagina(UsuarioService.CAMPOS_ORDENABLES, "correo,asc")),
+]
 
 
 @router.post(
@@ -39,10 +52,12 @@ def registrar(
     return UsuarioResponse.model_validate(usuario)
 
 
-@router.get("", response_model=list[UsuarioResponse], summary="Listar todas las cuentas")
-def listar(servicio: ServicioDeUsuarios, _: Administrador) -> list[UsuarioResponse]:
-    """Solo `ADMIN`: un titular que lo pide recibe `403`."""
-    return [UsuarioResponse.model_validate(usuario) for usuario in servicio.listar()]
+@router.get("", response_model=PaginaResponse[UsuarioResponse], summary="Listar todas las cuentas")
+def listar(
+    servicio: ServicioDeUsuarios, _: Administrador, pagina: PaginaDeUsuarios
+) -> PaginaResponse[UsuarioResponse]:
+    """Solo `ADMIN`: un titular que lo pide recibe `403`. Paginada."""
+    return respuesta_de_pagina(servicio.listar(pagina), UsuarioResponse.model_validate)
 
 
 @router.get("/yo", response_model=UsuarioResponse, summary="La cuenta del token actual")

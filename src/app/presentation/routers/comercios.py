@@ -11,13 +11,22 @@ dos roles se separan más claro:
   asigna el titular para sí mismo.
 """
 
-from fastapi import APIRouter, Response, status
+from typing import Annotated
 
+from fastapi import APIRouter, Depends, Query, Response, status
+
+from app.business.services.comercio_service import ComercioService
+from app.data.paginacion import SolicitudDePagina
 from app.presentation.dependencies import (
     Administrador,
     ServicioDeComercios,
     ServicioDeConciliacion,
     UsuarioActual,
+)
+from app.presentation.paginacion import (
+    PaginaResponse,
+    parametros_de_pagina,
+    respuesta_de_pagina,
 )
 from app.presentation.rutas import API_V1, ubicacion
 from app.presentation.schemas import (
@@ -28,6 +37,11 @@ from app.presentation.schemas import (
 )
 
 router = APIRouter(prefix=f"{API_V1}/comercios", tags=["comercios"])
+
+PaginaDeComercios = Annotated[
+    SolicitudDePagina,
+    Depends(parametros_de_pagina(ComercioService.CAMPOS_ORDENABLES, "nombre,asc")),
+]
 
 
 @router.post(
@@ -50,9 +64,22 @@ def crear(
     return ComercioResponse.model_validate(comercio)
 
 
-@router.get("", response_model=list[ComercioResponse], summary="Listar el catálogo de comercios")
-def listar(servicio: ServicioDeComercios, _: UsuarioActual) -> list[ComercioResponse]:
-    return [ComercioResponse.model_validate(comercio) for comercio in servicio.listar()]
+@router.get(
+    "",
+    response_model=PaginaResponse[ComercioResponse],
+    summary="Listar el catálogo de comercios",
+)
+def listar(
+    servicio: ServicioDeComercios,
+    _: UsuarioActual,
+    pagina: PaginaDeComercios,
+    nombre: Annotated[
+        str | None,
+        Query(max_length=120, description="Solo los comercios cuyo nombre contiene este texto."),
+    ] = None,
+) -> PaginaResponse[ComercioResponse]:
+    """El catálogo crece con cada comercio nuevo que aparece en un comprobante: paginado."""
+    return respuesta_de_pagina(servicio.buscar(nombre, pagina), ComercioResponse.model_validate)
 
 
 @router.get("/{comercio_id}", response_model=ComercioResponse, summary="Consultar un comercio")

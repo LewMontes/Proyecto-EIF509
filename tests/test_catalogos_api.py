@@ -41,7 +41,7 @@ def test_nombre_repetido_se_traduce_a_409(cliente: TestClient) -> None:
     )
 
     assert respuesta.status_code == 409
-    assert "Ya existe" in respuesta.json()["detalle"]
+    assert "Ya existe" in respuesta.json()["detail"]
 
 
 def test_color_invalido_se_traduce_a_422(cliente: TestClient) -> None:
@@ -51,7 +51,7 @@ def test_color_invalido_se_traduce_a_422(cliente: TestClient) -> None:
     )
 
     assert respuesta.status_code == 422
-    assert "hexadecimal" in respuesta.json()["detalle"]
+    assert "hexadecimal" in respuesta.json()["detail"]
 
 
 def test_listar_categorias_del_titular(cliente: TestClient) -> None:
@@ -275,7 +275,7 @@ def test_un_administrador_da_de_alta_un_comercio_y_cualquiera_lo_consulta(
     assert creacion.headers["Location"] == f"/api/v1/comercios/{cuerpo['id']}"
     assert cuerpo["nombre_normalizado"] == "WALMART SAN SEBASTIAN"
     assert cliente.get(f"/api/v1/comercios/{cuerpo['id']}").json() == cuerpo
-    assert cliente.get("/api/v1/comercios").json() == [cuerpo]
+    assert cliente.get("/api/v1/comercios").json()["contenido"] == [cuerpo]
 
 
 def test_un_comercio_repetido_da_409(cliente_admin: TestClient) -> None:

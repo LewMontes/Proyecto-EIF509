@@ -15,6 +15,7 @@ from app.business.errors import (
 from app.business.parsers.comprobante_bac import ComprobanteParseado
 from app.data.models.comercio import Comercio
 from app.data.models.comercio_categoria_sugerida import ComercioCategoriaSugerida
+from app.data.paginacion import Pagina, SolicitudDePagina
 from app.data.repositories.categoria_repository import CategoriaRepository
 from app.data.repositories.comercio_categoria_repository import ComercioCategoriaRepository
 from app.data.repositories.comercio_repository import ComercioRepository
@@ -65,6 +66,8 @@ class MovimientoDetallado:
 
 class ComercioService:
     """Resuelve comercios del catálogo compartido y sus categorías sugeridas por titular."""
+
+    CAMPOS_ORDENABLES = tuple(ComercioRepository.COLUMNAS_ORDENABLES)
 
     def __init__(
         self,
@@ -123,9 +126,14 @@ class ComercioService:
         self.comercios.sesion.commit()
         return comercio
 
-    def listar(self) -> list[Comercio]:
-        """Todo el catálogo compartido, por nombre."""
-        return self.comercios.listar_por_nombre()
+    def buscar(self, nombre: str | None, solicitud: SolicitudDePagina) -> Pagina[Comercio]:
+        """Una página del catálogo compartido, opcionalmente filtrada por nombre.
+
+        El texto se normaliza igual que los nombres del catálogo, así que
+        buscar `sebastián` encuentra `WALMART SAN SEBASTIAN`.
+        """
+        nombre_normalizado = normalizar_nombre_comercio(nombre) if nombre else None
+        return self.comercios.buscar(nombre_normalizado, solicitud)
 
     def obtener(self, comercio_id: int) -> Comercio:
         comercio = self.comercios.obtener_por_id(comercio_id)

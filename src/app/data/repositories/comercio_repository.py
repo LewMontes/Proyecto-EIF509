@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.data.models.comercio import Comercio
+from app.data.paginacion import Pagina, SolicitudDePagina, paginar
 from app.data.repositories.base_repository import BaseRepository
 
 
@@ -18,5 +19,17 @@ class ComercioRepository(BaseRepository[Comercio]):
             select(Comercio).where(Comercio.nombre_normalizado == nombre_normalizado)
         ).first()
 
-    def listar_por_nombre(self) -> list[Comercio]:
-        return list(self.sesion.scalars(select(Comercio).order_by(Comercio.nombre_normalizado)))
+    COLUMNAS_ORDENABLES = {"nombre": Comercio.nombre_normalizado, "id": Comercio.id}
+
+    def buscar(self, nombre_contiene: str | None, solicitud: SolicitudDePagina) -> Pagina[Comercio]:
+        """Una página del catálogo, opcionalmente solo los que contienen ese texto.
+
+        Se compara contra `nombre_normalizado` -mayúsculas, sin acentos-, así
+        que quien llama tiene que pasar el texto ya normalizado.
+        """
+        consulta = select(Comercio)
+        if nombre_contiene:
+            consulta = consulta.where(Comercio.nombre_normalizado.contains(nombre_contiene))
+        return paginar(
+            self.sesion, consulta, solicitud, self.COLUMNAS_ORDENABLES, desempate=Comercio.id
+        )

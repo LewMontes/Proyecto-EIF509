@@ -38,6 +38,7 @@ from app.business.services.conciliacion_service import (
 )
 from app.data.models.comprobante import Comprobante
 from app.data.models.enums import EstadoComprobante, EstadoCuentaCorreo
+from app.data.paginacion import Pagina, SolicitudDePagina
 from app.data.repositories.comprobante_repository import ComprobanteRepository
 from app.data.repositories.cuenta_correo_repository import CuentaCorreoRepository
 
@@ -95,6 +96,8 @@ class ComprobanteDetalle:
 
 class ComprobanteService:
     """Recibe comprobantes y los pasa por la conciliación."""
+
+    CAMPOS_ORDENABLES = tuple(ComprobanteRepository.COLUMNAS_ORDENABLES)
 
     def __init__(
         self,
@@ -183,14 +186,13 @@ class ComprobanteService:
         """El comprobante, solo si pertenece al titular que lo pide."""
         return _detalle(self._del_titular(usuario_id, comprobante_id))
 
-    def listar(
-        self, usuario_id: int, estado: EstadoComprobante | None = None
-    ) -> list[ComprobanteDetalle]:
-        """Los comprobantes del titular, del más reciente al más viejo."""
-        return [
-            _detalle(comprobante)
-            for comprobante in self.comprobantes.listar_de_usuario(usuario_id, estado)
-        ]
+    def buscar(
+        self, usuario_id: int, estado: EstadoComprobante | None, solicitud: SolicitudDePagina
+    ) -> Pagina[ComprobanteDetalle]:
+        """Una página de los comprobantes del titular, opcionalmente de un solo estado."""
+        return self.comprobantes.paginar_de_usuario(usuario_id, estado, solicitud).convertir(
+            _detalle
+        )
 
     def _del_titular(self, usuario_id: int, comprobante_id: int) -> Comprobante:
         comprobante = self.comprobantes.obtener_de_usuario(comprobante_id, usuario_id)

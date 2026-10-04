@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.data.models.comprobante import Comprobante
 from app.data.models.enums import EstadoComprobante
+from app.data.paginacion import Pagina, SolicitudDePagina, paginar
 from app.data.repositories.base_repository import BaseRepository
 
 
@@ -60,15 +61,27 @@ class ComprobanteRepository(BaseRepository[Comprobante]):
             )
         ).first()
 
-    def listar_de_usuario(
-        self, usuario_id: int, estado: EstadoComprobante | None = None
-    ) -> list[Comprobante]:
-        """Los comprobantes del titular, del más reciente al más viejo."""
+    COLUMNAS_ORDENABLES = {
+        "recibido_en": Comprobante.recibido_en,
+        "fecha": Comprobante.fecha,
+        "monto": Comprobante.monto,
+        "id": Comprobante.id,
+    }
+
+    def paginar_de_usuario(
+        self,
+        usuario_id: int,
+        estado: EstadoComprobante | None,
+        solicitud: SolicitudDePagina,
+    ) -> Pagina[Comprobante]:
+        """Una página de los comprobantes del titular, opcionalmente de un solo estado."""
         consulta = select(Comprobante).where(Comprobante.usuario_id == usuario_id)
         if estado is not None:
             consulta = consulta.where(Comprobante.estado == estado)
-        return list(
-            self.sesion.scalars(
-                consulta.order_by(Comprobante.recibido_en.desc(), Comprobante.id.desc())
-            )
+        return paginar(
+            self.sesion,
+            consulta,
+            solicitud,
+            self.COLUMNAS_ORDENABLES,
+            desempate=Comprobante.id.desc(),
         )

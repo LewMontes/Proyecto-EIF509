@@ -71,7 +71,7 @@ def test_una_fecha_futura_da_422(cliente: TestClient, sesion: Session) -> None:
     )
 
     assert respuesta.status_code == 422
-    assert "futura" in respuesta.json()["detalle"]
+    assert "futura" in respuesta.json()["detail"]
 
 
 def test_una_categoria_padre_da_409(cliente: TestClient, sesion: Session) -> None:
@@ -86,7 +86,7 @@ def test_una_categoria_padre_da_409(cliente: TestClient, sesion: Session) -> Non
     respuesta = cliente.post("/api/v1/compras", json=_compra(comercio_id, categoria_id))
 
     assert respuesta.status_code == 409
-    assert "padre" in respuesta.json()["detalle"]
+    assert "padre" in respuesta.json()["detail"]
 
 
 def test_un_total_que_no_cuadra_con_el_recibo_da_409(cliente: TestClient, sesion: Session) -> None:
@@ -97,7 +97,7 @@ def test_un_total_que_no_cuadra_con_el_recibo_da_409(cliente: TestClient, sesion
     )
 
     assert respuesta.status_code == 409
-    assert "no cuadra" in respuesta.json()["detalle"]
+    assert "no cuadra" in respuesta.json()["detail"]
 
 
 def test_un_comercio_que_no_existe_da_404(cliente: TestClient, sesion: Session) -> None:
@@ -125,7 +125,7 @@ def test_la_compra_de_otro_titular_da_404(
         ).status_code
         == 404
     )
-    assert intruso.get("/api/v1/compras").json() == []
+    assert intruso.get("/api/v1/compras").json()["contenido"] == []
 
 
 def test_anular_una_compra_da_204_y_devuelve_el_monto_al_presupuesto(

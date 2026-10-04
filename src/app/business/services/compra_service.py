@@ -9,9 +9,14 @@ servicio es lo que la hace un dato de primera clase: listable, filtrable por
 """
 
 from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
 
-from app.business.errors import DatosInvalidos, RecursoNoEncontrado
+from app.business.errors import DatosInvalidos, RangoInvalido, RecursoNoEncontrado
 from app.data.models.compra import Compra
+from app.data.models.enums import EstadoCompra, OrigenCompra
+from app.data.paginacion import Pagina, SolicitudDePagina
+from app.data.repositories import especificaciones as esp
 from app.data.repositories.compra_repository import CompraRepository, GastoDeCategoria
 
 
@@ -32,8 +37,32 @@ class CompraDetallada:
     categoria_nombre: str | None
 
 
+@dataclass(frozen=True)
+class FiltrosDeCompra:
+    """Los filtros de negocio de la lista de compras. Todos opcionales y combinables.
+
+    Es lo que el servicio recibe de la presentación; convertir cada uno en una
+    especificación y componerlas es trabajo del servicio, no del router.
+    """
+
+    desde: date | None = None
+    hasta: date | None = None
+    categoria_id: int | None = None
+    comercio_id: int | None = None
+    metodo_pago_id: int | None = None
+    estado: EstadoCompra | None = None
+    origen: OrigenCompra | None = None
+    requiere_revision: bool | None = None
+    total_minimo: Decimal | None = None
+    total_maximo: Decimal | None = None
+
+
 class CompraService:
     """Consultas de compras reales ya conciliadas."""
+
+    # Por qué campos se puede ordenar la lista. La presentación lo lee de acá
+    # para validar el parámetro `orden` sin conocer al repositorio.
+    CAMPOS_ORDENABLES = tuple(CompraRepository.COLUMNAS_ORDENABLES)
 
     def __init__(self, compra_repository: CompraRepository) -> None:
         # Un solo repositorio, no seis. Antes hacían falta los de comercio,
@@ -66,6 +95,45 @@ class CompraService:
         """
         compras = self.compras.listar_de_usuario(usuario_id, requiere_revision, limite)
         return [self._detallar(compra) for compra in compras]
+
+    def buscar_del_titular(
+        self, usuario_id: int, filtros: FiltrosDeCompra, solicitud: SolicitudDePagina
+    ) -> Pagina[CompraDetallada]:
+        """Una página de las compras del titular que cumplen los filtros.
+
+        Cada filtro es una especificación con nombre de negocio, y la búsqueda
+        es su conjunción. **Arranca siempre de `del_titular`**: es la
+        verificación de propiedad -el `usuario_id` viene del token, y ningún
+        filtro que mande el cliente puede sacar la búsqueda de sus propias
+        compras.
+
+        Valida lo que solo el negocio puede validar: un rango cuyo inicio es
+        posterior a su fin está bien formado, pero no puede contener nada.
+        """
+        if filtros.desde and filtros.hasta and filtros.desde > filtros.hasta:
+            raise RangoInvalido(
+                f"El rango de fechas está invertido: {filtros.desde} es posterior "
+                f"a {filtros.hasta}."
+            )
+        if (
+            filtros.total_minimo is not None
+            and filtros.total_maximo is not None
+            and filtros.total_minimo > filtros.total_maximo
+        ):
+            raise RangoInvalido("El total mínimo no puede ser mayor que el máximo.")
+
+        especificacion = esp.todas(
+            esp.del_titular(usuario_id),
+            esp.entre_fechas(filtros.desde, filtros.hasta),
+            esp.de_la_categoria(filtros.categoria_id),
+            esp.del_comercio(filtros.comercio_id),
+            esp.con_metodo_de_pago(filtros.metodo_pago_id),
+            esp.en_estado(filtros.estado),
+            esp.de_origen(filtros.origen),
+            esp.que_requieren_revision(filtros.requiere_revision),
+            esp.con_total_entre(filtros.total_minimo, filtros.total_maximo),
+        )
+        return self.compras.buscar(especificacion, solicitud).convertir(self._detallar)
 
     def obtener_detalle_del_titular(self, usuario_id: int, compra_id: int) -> CompraDetallada:
         compra = self.compras.obtener_detallada_de_usuario(compra_id, usuario_id)

@@ -82,6 +82,10 @@ class TipoDeCambioRequerido(DatosInvalidos):
     """Una compra en moneda extranjera exige la tasa de su fecha; no se inventa una."""
 
 
+class RangoInvalido(DatosInvalidos):
+    """El inicio de un rango es posterior a su fin: no hay nada que pueda caer adentro."""
+
+
 class CorreccionVacia(DatosInvalidos):
     """Se pidio corregir una compra sin indicar que corregir."""
 

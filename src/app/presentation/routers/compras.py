@@ -10,23 +10,32 @@ Los recursos son sustantivos y la operación la dice el verbo HTTP: corregir es
 `/compras/{id}/resolver` ni `/compras/{id}/anular`.
 """
 
+from datetime import date
+from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.business.errors import RecursoNoEncontrado
-from app.business.services.compra_service import CompraDetallada
+from app.business.services.compra_service import CompraDetallada, CompraService, FiltrosDeCompra
 from app.business.services.registrar_compra_service import (
     CompraRegistrada,
     LineaDeCompraComando,
     RegistrarCompraComando,
 )
+from app.data.models.enums import EstadoCompra, OrigenCompra
+from app.data.paginacion import SolicitudDePagina
 from app.presentation.dependencies import (
     ServicioDeBitacora,
     ServicioDeCompras,
     ServicioDeConciliacion,
     ServicioDeRegistroDeCompras,
     UsuarioActual,
+)
+from app.presentation.paginacion import (
+    PaginaResponse,
+    parametros_de_pagina,
+    respuesta_de_pagina,
 )
 from app.presentation.rutas import API_V1, ubicacion
 from app.presentation.schemas import (
@@ -41,6 +50,11 @@ from app.presentation.schemas import (
 )
 
 router = APIRouter(prefix=f"{API_V1}/compras", tags=["compras"])
+
+PaginaDeCompras = Annotated[
+    SolicitudDePagina,
+    Depends(parametros_de_pagina(CompraService.CAMPOS_ORDENABLES, "fecha,desc")),
+]
 
 
 def _respuesta(detalle: CompraDetallada) -> CompraResponse:
@@ -154,20 +168,57 @@ def registrar(
     return _respuesta_registrada(registrada)
 
 
-@router.get("", response_model=list[CompraResponse], summary="Listar las compras del titular")
+@router.get(
+    "",
+    response_model=PaginaResponse[CompraResponse],
+    summary="Listar las compras del titular: paginadas, ordenadas y filtradas",
+)
 def listar(
     servicio: ServicioDeCompras,
     usuario: UsuarioActual,
-    requiere_revision: bool | None = Query(
-        default=None,
-        description="True trae solo las que quedaron sin método de pago o sin categoría.",
-    ),
-    limite: int = Query(default=50, gt=0, le=200),
-) -> list[CompraResponse]:
-    return [
-        _respuesta(detalle)
-        for detalle in servicio.listar_del_titular(usuario.id, requiere_revision, limite)
-    ]
+    pagina: PaginaDeCompras,
+    desde: Annotated[date | None, Query(description="Compras desde esta fecha, inclusive.")] = None,
+    hasta: Annotated[date | None, Query(description="Compras hasta esta fecha, inclusive.")] = None,
+    categoria_id: Annotated[
+        int | None, Query(gt=0, description="Con algún renglón en esta categoría.")
+    ] = None,
+    comercio_id: Annotated[int | None, Query(gt=0)] = None,
+    metodo_pago_id: Annotated[int | None, Query(gt=0)] = None,
+    estado: Annotated[EstadoCompra | None, Query()] = None,
+    origen: Annotated[OrigenCompra | None, Query()] = None,
+    requiere_revision: Annotated[
+        bool | None,
+        Query(description="True trae solo las que quedaron sin método de pago o sin categoría."),
+    ] = None,
+    total_minimo: Annotated[
+        Decimal | None, Query(ge=0, description="Total mínimo, en moneda base.")
+    ] = None,
+    total_maximo: Annotated[
+        Decimal | None, Query(ge=0, description="Total máximo, en moneda base.")
+    ] = None,
+) -> PaginaResponse[CompraResponse]:
+    """La colección principal del sistema.
+
+    Todos los filtros son opcionales y se combinan entre sí; cada uno es una
+    *Specification* (ver `data/repositories/especificaciones.py`). El titular
+    no es un filtro: sale del token y siempre se aplica.
+
+    `400` si un parámetro está mal formado o se pide un orden por un campo que
+    no existe; `422` si el rango de fechas o de montos está invertido.
+    """
+    filtros = FiltrosDeCompra(
+        desde=desde,
+        hasta=hasta,
+        categoria_id=categoria_id,
+        comercio_id=comercio_id,
+        metodo_pago_id=metodo_pago_id,
+        estado=estado,
+        origen=origen,
+        requiere_revision=requiere_revision,
+        total_minimo=total_minimo,
+        total_maximo=total_maximo,
+    )
+    return respuesta_de_pagina(servicio.buscar_del_titular(usuario.id, filtros, pagina), _respuesta)
 
 
 @router.get(

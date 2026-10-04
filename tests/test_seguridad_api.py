@@ -201,7 +201,7 @@ def test_un_token_vencido_da_401(cliente_anonimo: TestClient, usuario: Usuario) 
     )
 
     assert respuesta.status_code == 401
-    assert "venció" in respuesta.json()["detalle"]
+    assert "venció" in respuesta.json()["detail"]
 
 
 def test_el_token_de_una_cuenta_desactivada_deja_de_valer(
@@ -227,14 +227,14 @@ def test_un_titular_no_lista_las_cuentas(cliente: TestClient) -> None:
     respuesta = cliente.get("/api/v1/usuarios")
 
     assert respuesta.status_code == 403
-    assert "ADMIN" in respuesta.json()["detalle"]
+    assert "ADMIN" in respuesta.json()["detail"]
 
 
 def test_un_administrador_si_lista_las_cuentas(cliente_admin: TestClient, usuario: Usuario) -> None:
     respuesta = cliente_admin.get("/api/v1/usuarios")
 
     assert respuesta.status_code == 200
-    assert {cuenta["correo"] for cuenta in respuesta.json()} == {
+    assert {cuenta["correo"] for cuenta in respuesta.json()["contenido"]} == {
         "admin@gastonomo.cr",
         usuario.correo,
     }

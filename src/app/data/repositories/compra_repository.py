@@ -10,7 +10,9 @@ from app.data.models.categoria import Categoria
 from app.data.models.compra import Compra
 from app.data.models.enums import EstadoCompra
 from app.data.models.linea_compra import LineaCompra
+from app.data.paginacion import Pagina, SolicitudDePagina, paginar
 from app.data.repositories.base_repository import BaseRepository
+from app.data.repositories.especificaciones import Especificacion
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,38 @@ class CompraRepository(BaseRepository[Compra]):
             consulta = consulta.where(Compra.requiere_revision.is_(requiere_revision))
         consulta = consulta.order_by(Compra.fecha.desc(), Compra.id.desc()).limit(limite)
         return list(self.sesion.scalars(consulta))
+
+    # Los campos por los que el cliente puede ordenar la lista. `total` ordena
+    # por el total en moneda base: ordenar por el crudo mezclaría monedas.
+    COLUMNAS_ORDENABLES = {
+        "fecha": Compra.fecha,
+        "total": Compra.total_moneda_base,
+        "creado_en": Compra.creado_en,
+        "id": Compra.id,
+    }
+
+    def buscar(
+        self, especificacion: Especificacion, solicitud: SolicitudDePagina
+    ) -> Pagina[Compra]:
+        """Una página de las compras que cumplen la especificación, listas para detallar.
+
+        El repositorio no sabe qué filtros trae la especificación ni cuántos:
+        recibe una sola, ya compuesta, y la pone en el `WHERE`. Es lo que deja
+        agregar un filtro nuevo sin tocar este método -ver `especificaciones.py`.
+
+        Las relaciones se cargan por adelantado igual que en
+        `listar_de_usuario`, por lo mismo: quien pide la página las va a leer
+        todas. Como los renglones van con `selectinload`, el `LIMIT` cuenta
+        compras y no filas del producto cartesiano.
+        """
+        return paginar(
+            self.sesion,
+            select(Compra).where(especificacion.como_predicado()),
+            solicitud,
+            self.COLUMNAS_ORDENABLES,
+            desempate=Compra.id.desc(),
+            opciones=self._relaciones_del_detalle(),
+        )
 
     def gasto_por_categoria(
         self,

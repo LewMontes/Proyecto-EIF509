@@ -21,6 +21,7 @@ from app.business.services.auth_service import UsuarioAutenticado
 from app.business.services.categoria_service import CategoriaService
 from app.data.models.enums import Moneda, RolUsuario
 from app.data.models.usuario import Usuario
+from app.data.paginacion import Pagina, SolicitudDePagina
 from app.data.repositories.usuario_repository import UsuarioRepository
 
 LARGO_MINIMO_CONTRASENA = 8
@@ -55,6 +56,8 @@ class UsuarioDetalle:
 
 class UsuarioService:
     """Aplica las reglas del dominio sobre las cuentas."""
+
+    CAMPOS_ORDENABLES = tuple(UsuarioRepository.COLUMNAS_ORDENABLES)
 
     def __init__(
         self,
@@ -130,9 +133,9 @@ class UsuarioService:
             raise RecursoNoEncontrado(f"El usuario {usuario_id} no existe.")
         return _detalle(usuario)
 
-    def listar(self) -> list[UsuarioDetalle]:
-        """Todas las cuentas. Quién puede pedirlo lo decide el rol, en la presentación."""
-        return [_detalle(usuario) for usuario in self.usuarios.listar_por_correo()]
+    def listar(self, solicitud: SolicitudDePagina) -> Pagina[UsuarioDetalle]:
+        """Una página de todas las cuentas. Quién puede pedirla lo decide el rol."""
+        return self.usuarios.paginar_todos(solicitud).convertir(_detalle)
 
 
 def _detalle(usuario: Usuario) -> UsuarioDetalle:

@@ -127,7 +127,9 @@ def test_sin_tarjeta_ni_categoria_la_compra_se_crea_marcada_para_revision(
     assert compra["requiere_revision"] is True
     assert compra["metodo_pago_id"] is None
     assert compra["categoria_id"] is None
-    revision = cliente.get("/api/v1/compras", params={"requiere_revision": True}).json()
+    revision = cliente.get("/api/v1/compras", params={"requiere_revision": True}).json()[
+        "contenido"
+    ]
     assert [c["id"] for c in revision] == [compra["id"]]
 
 
@@ -138,8 +140,8 @@ def test_el_mismo_mensaje_no_se_recibe_dos_veces(cliente: TestClient, buzon: int
     repetido = cliente.post("/api/v1/comprobantes", json=_comprobante(buzon))
 
     assert repetido.status_code == 409
-    assert len(cliente.get("/api/v1/compras").json()) == 1
-    assert len(cliente.get("/api/v1/comprobantes").json()) == 1
+    assert len(cliente.get("/api/v1/compras").json()["contenido"]) == 1
+    assert len(cliente.get("/api/v1/comprobantes").json()["contenido"]) == 1
 
 
 def test_con_poca_confianza_queda_en_revision_manual_y_no_crea_compra(
@@ -156,7 +158,7 @@ def test_con_poca_confianza_queda_en_revision_manual_y_no_crea_compra(
     assert respuesta.json()["confianza"] == 0.5
     assert respuesta.json()["compra_id"] is None
     assert respuesta.json()["motivo_fallo"]
-    assert cliente.get("/api/v1/compras").json() == []
+    assert cliente.get("/api/v1/compras").json()["contenido"] == []
     # Y uno en revisión manual no se reintenta: lo resuelve una persona.
     ruta = f"/api/v1/comprobantes/{respuesta.json()['id']}/reintentos"
     assert cliente.post(ruta).status_code == 409
@@ -179,8 +181,10 @@ def test_en_dolares_sin_tipo_de_cambio_queda_pendiente_y_se_concilia_al_reintent
     assert pendiente["compra_id"] is None
     assert "tipo de cambio" in pendiente["motivo_fallo"]
     assert pendiente["intentos_procesamiento"] == 0
-    assert cliente.get("/api/v1/compras").json() == []
-    pendientes = cliente.get("/api/v1/comprobantes", params={"estado": "PARSEADO"}).json()
+    assert cliente.get("/api/v1/compras").json()["contenido"] == []
+    pendientes = cliente.get("/api/v1/comprobantes", params={"estado": "PARSEADO"}).json()[
+        "contenido"
+    ]
     assert [c["id"] for c in pendientes] == [pendiente["id"]]
 
     class _TasaFija:
@@ -212,7 +216,7 @@ def test_al_tercer_fallo_el_comprobante_queda_fallido(
         assert primero.status_code == 500
         assert "Traceback" not in primero.text and "RuntimeError" not in primero.text
 
-        comprobante = cliente.get("/api/v1/comprobantes").json()[0]
+        comprobante = cliente.get("/api/v1/comprobantes").json()["contenido"][0]
         assert comprobante["estado"] == "PARSEADO"
         assert comprobante["intentos_procesamiento"] == 1
         ruta = f"/api/v1/comprobantes/{comprobante['id']}/reintentos"
@@ -225,7 +229,7 @@ def test_al_tercer_fallo_el_comprobante_queda_fallido(
     assert fallido["intentos_procesamiento"] == 3
     assert "se cayó" in fallido["motivo_fallo"]
     assert cliente.post(ruta).status_code == 409, "no hay un cuarto intento"
-    assert cliente.get("/api/v1/compras").json() == []
+    assert cliente.get("/api/v1/compras").json()["contenido"] == []
 
 
 # ---- validación del DTO de entrada ----
@@ -245,11 +249,16 @@ def test_al_tercer_fallo_el_comprobante_queda_fallido(
 def test_el_dto_rechaza_la_forma_antes_de_llegar_al_negocio(
     cliente: TestClient, buzon: int, campo: str, valor
 ) -> None:
-    """Monto positivo, fecha no futura y moneda reconocida: lo valida Pydantic."""
+    """Monto positivo, fecha no futura y moneda reconocida: lo valida Pydantic.
+
+    Es forma, no regla de negocio: `400` con el campo que falló, no `422`.
+    """
     respuesta = cliente.post("/api/v1/comprobantes", json=_comprobante(buzon, **{campo: valor}))
 
-    assert respuesta.status_code == 422
-    assert cliente.get("/api/v1/comprobantes").json() == [], "no se guardó nada"
+    assert respuesta.status_code == 400
+    assert respuesta.headers["content-type"] == "application/problem+json"
+    assert [error["campo"] for error in respuesta.json()["errores"]] == [f"body.{campo}"]
+    assert cliente.get("/api/v1/comprobantes").json()["contenido"] == [], "no se guardó nada"
 
 
 # ---- propiedad ----
@@ -272,4 +281,4 @@ def test_el_comprobante_de_otro_titular_no_se_ve_ni_se_reintenta(
 
     assert intruso.get(f"/api/v1/comprobantes/{comprobante_id}").status_code == 404
     assert intruso.post(f"/api/v1/comprobantes/{comprobante_id}/reintentos").status_code == 404
-    assert intruso.get("/api/v1/comprobantes").json() == []
+    assert intruso.get("/api/v1/comprobantes").json()["contenido"] == []

@@ -311,7 +311,7 @@ def test_el_endpoint_responde_el_gasto_del_mes(
 
     `/api/v1/compras/gasto-por-categoria` tiene que declararse antes que
     `/api/v1/compras/{compra_id}`; si se invirtieran, esta llamada entraría por
-    el detalle y daría 422 al no poder leer "gasto-por-categoria" como un id.
+    el detalle y daría 400 al no poder leer "gasto-por-categoria" como un id.
     """
     alimentacion = _categoria(sesion, usuario, "Alimentacion")
     tienda = _comercio(sesion, "Tienda")
@@ -340,4 +340,4 @@ def test_el_endpoint_rechaza_un_mes_fuera_de_rango(cliente: TestClient, usuario:
         params={"anio": 2026, "mes": 13},
     )
 
-    assert respuesta.status_code == 422
+    assert respuesta.status_code == 400, "un mes 13 es un parámetro mal formado"
