@@ -42,7 +42,7 @@ class Presupuesto(Base):
     )
     anio: Mapped[int] = mapped_column(nullable=False)
     mes: Mapped[int] = mapped_column(nullable=False)
-    moneda: Mapped[Moneda] = mapped_column(Enum(Moneda), nullable=False)
+    moneda: Mapped[Moneda] = mapped_column(Enum(Moneda, name="moneda"), nullable=False)
     monto_limite: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     monto_consumido: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     umbral_alerta: Mapped[int] = mapped_column(nullable=False, default=80)

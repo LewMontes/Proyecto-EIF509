@@ -77,3 +77,31 @@ class CampoRegla(StrEnum):
     COMERCIO_NORMALIZADO = "COMERCIO_NORMALIZADO"
     DESCRIPCION_COMPRA = "DESCRIPCION_COMPRA"
     DESCRIPCION_LINEA = "DESCRIPCION_LINEA"
+
+
+class RolUsuario(StrEnum):
+    """Qué puede hacer una cuenta dentro del sistema.
+
+    `TITULAR` es cualquier persona que se registra: administra **sus** datos.
+    `ADMIN` mantiene lo que es de todos -el catálogo compartido de comercios y
+    la lista de cuentas-. Un administrador no gana acceso a los gastos de
+    nadie: el aislamiento por titular no depende del rol.
+    """
+
+    TITULAR = "TITULAR"
+    ADMIN = "ADMIN"
+
+
+class EstadoComprobante(StrEnum):
+    """Ciclo de vida de un comprobante dentro de la ingesta.
+
+    Las transiciones permitidas viven en
+    `business/services/ciclo_comprobante.py`, no acá: este enum solo nombra
+    los estados, igual que el tipo `estado_comprobante` de PostgreSQL.
+    """
+
+    RECIBIDO = "RECIBIDO"
+    PARSEADO = "PARSEADO"
+    PROCESADO = "PROCESADO"
+    REVISION_MANUAL = "REVISION_MANUAL"
+    FALLIDO = "FALLIDO"

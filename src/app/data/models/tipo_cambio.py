@@ -34,8 +34,8 @@ class TipoCambio(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    moneda_origen: Mapped[Moneda] = mapped_column(Enum(Moneda), nullable=False)
-    moneda_destino: Mapped[Moneda] = mapped_column(Enum(Moneda), nullable=False)
+    moneda_origen: Mapped[Moneda] = mapped_column(Enum(Moneda, name="moneda"), nullable=False)
+    moneda_destino: Mapped[Moneda] = mapped_column(Enum(Moneda, name="moneda"), nullable=False)
     fecha: Mapped[date] = mapped_column(nullable=False, index=True)
     tasa: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
     fuente: Mapped[str] = mapped_column(String(60), nullable=False, default="BCCR")

@@ -44,8 +44,12 @@ class MetodoPago(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False, index=True)
     alias: Mapped[str] = mapped_column(String(60), nullable=False)
-    tipo: Mapped[TipoMetodoPago] = mapped_column(Enum(TipoMetodoPago), nullable=False)
-    moneda: Mapped[Moneda] = mapped_column(Enum(Moneda), nullable=False, default=Moneda.CRC)
+    tipo: Mapped[TipoMetodoPago] = mapped_column(
+        Enum(TipoMetodoPago, name="tipo_metodo_pago"), nullable=False
+    )
+    moneda: Mapped[Moneda] = mapped_column(
+        Enum(Moneda, name="moneda"), nullable=False, default=Moneda.CRC
+    )
     ultimos_cuatro: Mapped[str | None] = mapped_column(String(4), nullable=True)
     entidad: Mapped[str | None] = mapped_column(String(80), nullable=True)
     dia_corte: Mapped[int | None] = mapped_column(nullable=True)

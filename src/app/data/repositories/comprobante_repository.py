@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.data.models.comprobante import Comprobante
+from app.data.models.enums import EstadoComprobante
 from app.data.repositories.base_repository import BaseRepository
 
 
@@ -36,3 +37,38 @@ class ComprobanteRepository(BaseRepository[Comprobante]):
             )
         )
         return set(filas)
+
+    def obtener_de_usuario(self, identificador: int, usuario_id: int) -> Comprobante | None:
+        """El comprobante, solo si pertenece al titular indicado."""
+        return self.sesion.scalars(
+            select(Comprobante).where(
+                Comprobante.id == identificador, Comprobante.usuario_id == usuario_id
+            )
+        ).first()
+
+    def buscar_por_mensaje(self, cuenta_correo_id: int, mensaje_id: str) -> Comprobante | None:
+        """El comprobante que ya se recibió para ese mensaje de ese buzón, si existe.
+
+        Es la consulta de la idempotencia: si el buzón reentrega el mismo
+        correo, esto lo encuentra y la ingesta lo rechaza en vez de duplicar
+        el gasto.
+        """
+        return self.sesion.scalars(
+            select(Comprobante).where(
+                Comprobante.cuenta_correo_id == cuenta_correo_id,
+                Comprobante.mensaje_id == mensaje_id,
+            )
+        ).first()
+
+    def listar_de_usuario(
+        self, usuario_id: int, estado: EstadoComprobante | None = None
+    ) -> list[Comprobante]:
+        """Los comprobantes del titular, del más reciente al más viejo."""
+        consulta = select(Comprobante).where(Comprobante.usuario_id == usuario_id)
+        if estado is not None:
+            consulta = consulta.where(Comprobante.estado == estado)
+        return list(
+            self.sesion.scalars(
+                consulta.order_by(Comprobante.recibido_en.desc(), Comprobante.id.desc())
+            )
+        )

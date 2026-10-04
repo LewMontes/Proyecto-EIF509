@@ -37,7 +37,9 @@ class ReglaCategorizacion(Base):
     categoria_destino_id: Mapped[int] = mapped_column(ForeignKey("categoria.id"), nullable=False)
     nombre: Mapped[str] = mapped_column(String(80), nullable=False)
     campo: Mapped[CampoRegla] = mapped_column(
-        Enum(CampoRegla), nullable=False, default=CampoRegla.COMERCIO_NORMALIZADO
+        Enum(CampoRegla, name="campo_regla"),
+        nullable=False,
+        default=CampoRegla.COMERCIO_NORMALIZADO,
     )
     patron: Mapped[str] = mapped_column(String(200), nullable=False)
     prioridad: Mapped[int] = mapped_column(nullable=False)

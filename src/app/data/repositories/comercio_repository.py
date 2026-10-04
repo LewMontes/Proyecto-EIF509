@@ -17,3 +17,6 @@ class ComercioRepository(BaseRepository[Comercio]):
         return self.sesion.scalars(
             select(Comercio).where(Comercio.nombre_normalizado == nombre_normalizado)
         ).first()
+
+    def listar_por_nombre(self) -> list[Comercio]:
+        return list(self.sesion.scalars(select(Comercio).order_by(Comercio.nombre_normalizado)))

@@ -14,14 +14,16 @@ ningún cuerpo de mensaje, porque no encuentra ningún `mensaje_id` nuevo con qu
 hacerlo.
 """
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.data.models.base import Base
+from app.data.models.enums import EstadoComprobante
+from app.data.models.tipos import FechaHoraUTC
 
 if TYPE_CHECKING:
     from app.data.models.compra import Compra
@@ -47,7 +49,26 @@ class Comprobante(Base):
     cuenta_correo_id: Mapped[int] = mapped_column(
         ForeignKey("cuenta_correo.id"), nullable=False, index=True
     )
-    mensaje_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    # El titular, propagado desde la cuenta de correo: la base lo usa en sus
+    # llaves foráneas compuestas para garantizar que el buzón y la compra
+    # ligada sean del mismo dueño, y la API lo usa para filtrar sin un JOIN.
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False, index=True)
+    mensaje_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    remitente: Mapped[str] = mapped_column(String(180), nullable=False)
+    recibido_en: Mapped[datetime] = mapped_column(
+        FechaHoraUTC, nullable=False, default=lambda: datetime.now(UTC)
+    )
+    # Dónde va el comprobante dentro de la ingesta. Quién puede moverlo de un
+    # estado a otro lo decide `business/services/ciclo_comprobante.py`.
+    estado: Mapped[EstadoComprobante] = mapped_column(
+        Enum(EstadoComprobante, name="estado_comprobante"),
+        nullable=False,
+        default=EstadoComprobante.RECIBIDO,
+    )
+    # Cuántas veces falló la conciliación. Al tercero pasa a `FALLIDO`.
+    intentos_procesamiento: Mapped[int] = mapped_column(nullable=False, default=0)
+    # Por qué falló, o por qué sigue pendiente (sin tipo de cambio, por ejemplo).
+    motivo_fallo: Mapped[str | None] = mapped_column(Text, nullable=True)
     # La `Compra` de negocio real que `ConciliacionService` creó a partir de
     # este comprobante -NULL si la confianza del parseo no alcanzó para
     # conciliar sola (queda en revisión manual). Ver conciliacion_service.py.

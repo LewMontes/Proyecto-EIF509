@@ -37,7 +37,9 @@ class CuentaCorreo(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False, index=True)
-    proveedor: Mapped[ProveedorCorreo] = mapped_column(Enum(ProveedorCorreo), nullable=False)
+    proveedor: Mapped[ProveedorCorreo] = mapped_column(
+        Enum(ProveedorCorreo, name="proveedor_correo"), nullable=False
+    )
     direccion: Mapped[str] = mapped_column(String(180), nullable=False)
     # Text, no String(n): un token cifrado con Fernet no tiene un largo fijo
     # -depende de cuanto mande Microsoft o Google, que puede variar bastante-
@@ -50,7 +52,9 @@ class CuentaCorreo(Base):
     expira_en: Mapped[datetime | None] = mapped_column(FechaHoraUTC, nullable=True)
     ultima_sincronizacion: Mapped[datetime | None] = mapped_column(FechaHoraUTC, nullable=True)
     estado: Mapped[EstadoCuentaCorreo] = mapped_column(
-        Enum(EstadoCuentaCorreo), nullable=False, default=EstadoCuentaCorreo.ACTIVA
+        Enum(EstadoCuentaCorreo, name="estado_cuenta_correo"),
+        nullable=False,
+        default=EstadoCuentaCorreo.ACTIVA,
     )
 
     usuario: Mapped[Usuario] = relationship(back_populates="cuentas_correo", lazy="select")

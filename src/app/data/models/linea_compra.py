@@ -28,6 +28,10 @@ class LineaCompra(Base):
     compra_id: Mapped[int] = mapped_column(
         ForeignKey("compra.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Propagado desde la compra a propósito: es lo que le permite a la base
+    # exigir, con una llave foránea compuesta, que la categoría del renglón sea
+    # del mismo titular que la compra (ver V3 de Flyway).
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False)
     categoria_id: Mapped[int | None] = mapped_column(ForeignKey("categoria.id"), nullable=True)
     descripcion: Mapped[str] = mapped_column(String(255), nullable=False)
     cantidad: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=1)

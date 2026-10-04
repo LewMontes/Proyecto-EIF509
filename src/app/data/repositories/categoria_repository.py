@@ -48,3 +48,14 @@ class CategoriaRepository(BaseRepository[Categoria]):
                 .order_by(Categoria.nombre)
             )
         )
+
+    def tiene_hijas_activas(self, categoria_id: int) -> bool:
+        """Si alguna subcategoria activa cuelga de esta."""
+        return (
+            self.sesion.scalars(
+                select(Categoria.id)
+                .where(Categoria.categoria_padre_id == categoria_id, Categoria.activa.is_(True))
+                .limit(1)
+            ).first()
+            is not None
+        )

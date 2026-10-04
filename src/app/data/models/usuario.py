@@ -7,7 +7,7 @@ from sqlalchemy import Boolean, Enum, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.data.models.base import Base
-from app.data.models.enums import Moneda
+from app.data.models.enums import Moneda, RolUsuario
 from app.data.models.tipos import FechaHoraUTC
 
 if TYPE_CHECKING:
@@ -44,7 +44,7 @@ class Usuario(Base):
         String(255), nullable=True, unique=True, index=True
     )
     moneda_preferida: Mapped[Moneda] = mapped_column(
-        Enum(Moneda), nullable=False, default=Moneda.CRC
+        Enum(Moneda, name="moneda"), nullable=False, default=Moneda.CRC
     )
     # Apagado por default: buscar "sinpe" en cada buzón activo es una
     # petición real por cuenta antes de poder parsear nada, y no todo
@@ -53,6 +53,14 @@ class Usuario(Base):
     # bandera antes de tocar la red.
     leer_transferencias_sinpe: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Lo que la cuenta puede hacer. Viaja dentro del JWT para que autorizar
+    # una petición no cueste una consulta, pero la fuente de verdad es esta
+    # columna: `AuthService.usuario_de_token` la relee en cada petición, así
+    # que quitarle el rol a alguien surte efecto sin esperar a que su token
+    # venza.
+    rol: Mapped[RolUsuario] = mapped_column(
+        Enum(RolUsuario, name="rol_usuario"), nullable=False, default=RolUsuario.TITULAR
+    )
     creado_en: Mapped[datetime] = mapped_column(
         FechaHoraUTC, nullable=False, default=lambda: datetime.now(UTC)
     )

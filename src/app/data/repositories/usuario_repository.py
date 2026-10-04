@@ -18,3 +18,6 @@ class UsuarioRepository(BaseRepository[Usuario]):
 
     def buscar_por_google_id(self, google_id: str) -> Usuario | None:
         return self.sesion.scalars(select(Usuario).where(Usuario.google_id == google_id)).first()
+
+    def listar_por_correo(self) -> list[Usuario]:
+        return list(self.sesion.scalars(select(Usuario).order_by(Usuario.correo)))

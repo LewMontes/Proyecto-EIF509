@@ -36,12 +36,14 @@ class Compra(Base):
     metodo_pago_id: Mapped[int | None] = mapped_column(ForeignKey("metodo_pago.id"), nullable=True)
     fecha: Mapped[date] = mapped_column(nullable=False, index=True)
     descripcion: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    moneda: Mapped[Moneda] = mapped_column(Enum(Moneda), nullable=False, default=Moneda.CRC)
+    moneda: Mapped[Moneda] = mapped_column(
+        Enum(Moneda, name="moneda"), nullable=False, default=Moneda.CRC
+    )
     estado: Mapped[EstadoCompra] = mapped_column(
-        Enum(EstadoCompra), nullable=False, default=EstadoCompra.BORRADOR
+        Enum(EstadoCompra, name="estado_compra"), nullable=False, default=EstadoCompra.BORRADOR
     )
     origen: Mapped[OrigenCompra] = mapped_column(
-        Enum(OrigenCompra), nullable=False, default=OrigenCompra.MANUAL
+        Enum(OrigenCompra, name="origen_compra"), nullable=False, default=OrigenCompra.MANUAL
     )
     subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     descuento: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
