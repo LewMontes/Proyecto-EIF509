@@ -1,22 +1,26 @@
 """Endpoints de las reglas de categorización de un titular.
 
-Sin esto, `ReglaCategorizacion` era un modelo y un motor de evaluación sin
-ningún dueño real -ver la nota en `regla_categorizacion_service.py`.
+Son el primer eslabón automático de la cadena de categorización: lo que el
+titular define acá es lo que `ReglasDelTitular` recorre por prioridad en los
+dos procesos del dominio.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Response, status
 
 from app.business.services.regla_categorizacion_service import (
     CrearReglaComando,
     ReglaCategorizacionService,
 )
 from app.data.models.regla_categorizacion import ReglaCategorizacion
-from app.presentation.dependencies import (
-    ServicioDeReglasCategorizacion,
+from app.presentation.dependencies import ServicioDeReglasCategorizacion, UsuarioActual
+from app.presentation.rutas import API_V1, ubicacion
+from app.presentation.schemas import (
+    CrearReglaCategorizacionRequest,
+    IdDeRuta,
+    ReglaCategorizacionResponse,
 )
-from app.presentation.schemas import CrearReglaCategorizacionRequest, ReglaCategorizacionResponse
 
-router = APIRouter(prefix="/api/reglas-categorizacion", tags=["reglas-categorizacion"])
+router = APIRouter(prefix=f"{API_V1}/reglas-categorizacion", tags=["reglas-categorizacion"])
 
 
 def _respuesta(
@@ -37,15 +41,20 @@ def _respuesta(
 
 
 @router.post(
-    "", response_model=ReglaCategorizacionResponse, summary="Crear una regla de categorización"
+    "",
+    response_model=ReglaCategorizacionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear una regla de categorización",
 )
 def crear(
     peticion: CrearReglaCategorizacionRequest,
     servicio: ServicioDeReglasCategorizacion,
+    usuario: UsuarioActual,
+    respuesta: Response,
 ) -> ReglaCategorizacionResponse:
     regla = servicio.crear(
         CrearReglaComando(
-            usuario_id=peticion.usuario_id,
+            usuario_id=usuario.id,
             nombre=peticion.nombre,
             patron=peticion.patron,
             categoria_destino_id=peticion.categoria_destino_id,
@@ -53,30 +62,40 @@ def crear(
             prioridad=peticion.prioridad,
         )
     )
+    respuesta.headers["Location"] = ubicacion("reglas-categorizacion", regla.id)
     return _respuesta(regla, servicio)
 
 
 @router.get(
     "",
     response_model=list[ReglaCategorizacionResponse],
-    summary="Listar las reglas de categorización",
+    summary="Listar las reglas de categorización, por prioridad",
 )
 def listar(
-    servicio: ServicioDeReglasCategorizacion,
-    usuario_id: int = Query(gt=0, le=2_147_483_647),
+    servicio: ServicioDeReglasCategorizacion, usuario: UsuarioActual
 ) -> list[ReglaCategorizacionResponse]:
-    return [_respuesta(regla, servicio) for regla in servicio.listar(usuario_id)]
+    return [_respuesta(regla, servicio) for regla in servicio.listar(usuario.id)]
+
+
+@router.get(
+    "/{regla_id}",
+    response_model=ReglaCategorizacionResponse,
+    summary="Consultar una regla de categorización",
+)
+def obtener(
+    regla_id: IdDeRuta, servicio: ServicioDeReglasCategorizacion, usuario: UsuarioActual
+) -> ReglaCategorizacionResponse:
+    return _respuesta(servicio.obtener(usuario.id, regla_id), servicio)
 
 
 @router.delete(
     "/{regla_id}",
-    response_model=ReglaCategorizacionResponse,
+    status_code=status.HTTP_204_NO_CONTENT,
     summary="Desactivar una regla de categorización",
 )
 def desactivar(
-    regla_id: int,
-    servicio: ServicioDeReglasCategorizacion,
-    usuario_id: int = Query(gt=0, le=2_147_483_647),
-) -> ReglaCategorizacionResponse:
-    regla = servicio.desactivar(usuario_id, regla_id)
-    return _respuesta(regla, servicio)
+    regla_id: IdDeRuta, servicio: ServicioDeReglasCategorizacion, usuario: UsuarioActual
+) -> None:
+    """Borrado lógico: la regla conserva `veces_aplicada` como historial y sigue
+    consultable por su id, ya con `activa: false`."""
+    servicio.desactivar(usuario.id, regla_id)

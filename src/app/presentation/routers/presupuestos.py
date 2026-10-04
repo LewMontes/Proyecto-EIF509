@@ -1,27 +1,39 @@
-"""Endpoints del límite de los presupuestos (CRUD).
+"""Endpoints de los presupuestos por categoría y mes.
 
-El consumo real -que combina esto con el gasto ya clasificado- vive en
-`GET /api/cuentas-correo/{cuenta_id}/presupuestos`, porque necesita leer
-correo y no tiene sentido en un router que solo conoce presupuestos.
+El consumo (`monto_consumido`) no se escribe por acá: lo acumulan los dos
+procesos del dominio dentro de la transacción que registra cada compra, y lo
+devuelve la anulación.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response, status
 
-from app.presentation.dependencies import (
-    ServicioDePresupuestos,
+from app.presentation.dependencies import ServicioDePresupuestos, UsuarioActual
+from app.presentation.rutas import API_V1, ubicacion
+from app.presentation.schemas import (
+    ActualizarPresupuestoRequest,
+    CrearPresupuestoRequest,
+    IdDeRuta,
+    PresupuestoResponse,
 )
-from app.presentation.schemas import CrearPresupuestoRequest, PresupuestoResponse
 
-router = APIRouter(prefix="/api/presupuestos", tags=["presupuestos"])
+router = APIRouter(prefix=f"{API_V1}/presupuestos", tags=["presupuestos"])
 
 
-@router.post("", response_model=PresupuestoResponse, summary="Crear o corregir un presupuesto")
-def crear_o_actualizar(
+@router.post(
+    "",
+    response_model=PresupuestoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear el presupuesto de una categoría para un mes",
+)
+def crear(
     peticion: CrearPresupuestoRequest,
     servicio: ServicioDePresupuestos,
+    usuario: UsuarioActual,
+    respuesta: Response,
 ) -> PresupuestoResponse:
-    presupuesto = servicio.crear_o_actualizar(
-        usuario_id=peticion.usuario_id,
+    """`409` si esa categoría ya tiene presupuesto en ese período: corregirlo es `PUT`."""
+    presupuesto = servicio.crear(
+        usuario_id=usuario.id,
         categoria_id=peticion.categoria_id,
         anio=peticion.anio,
         mes=peticion.mes,
@@ -29,6 +41,7 @@ def crear_o_actualizar(
         monto_limite=peticion.monto_limite,
         umbral_alerta=peticion.umbral_alerta,
     )
+    respuesta.headers["Location"] = ubicacion("presupuestos", presupuesto.id)
     return PresupuestoResponse.model_validate(presupuesto)
 
 
@@ -37,18 +50,44 @@ def crear_o_actualizar(
 )
 def listar(
     servicio: ServicioDePresupuestos,
-    usuario_id: int = Query(gt=0, le=2_147_483_647),
+    usuario: UsuarioActual,
     anio: int = Query(ge=2000, le=2100),
     mes: int = Query(ge=1, le=12),
 ) -> list[PresupuestoResponse]:
-    presupuestos = servicio.listar_del_periodo(usuario_id, anio, mes)
+    presupuestos = servicio.listar_del_periodo(usuario.id, anio, mes)
     return [PresupuestoResponse.model_validate(p) for p in presupuestos]
 
 
-@router.delete("/{presupuesto_id}", status_code=204, summary="Eliminar un presupuesto")
-def eliminar(
-    presupuesto_id: int,
+@router.get(
+    "/{presupuesto_id}", response_model=PresupuestoResponse, summary="Consultar un presupuesto"
+)
+def obtener(
+    presupuesto_id: IdDeRuta, servicio: ServicioDePresupuestos, usuario: UsuarioActual
+) -> PresupuestoResponse:
+    return PresupuestoResponse.model_validate(servicio.obtener(usuario.id, presupuesto_id))
+
+
+@router.put(
+    "/{presupuesto_id}",
+    response_model=PresupuestoResponse,
+    summary="Corregir el límite y el umbral de un presupuesto",
+)
+def actualizar(
+    presupuesto_id: IdDeRuta,
+    peticion: ActualizarPresupuestoRequest,
     servicio: ServicioDePresupuestos,
-    usuario_id: int = Query(gt=0, le=2_147_483_647),
+    usuario: UsuarioActual,
+) -> PresupuestoResponse:
+    presupuesto = servicio.actualizar(
+        usuario.id, presupuesto_id, peticion.monto_limite, peticion.umbral_alerta
+    )
+    return PresupuestoResponse.model_validate(presupuesto)
+
+
+@router.delete(
+    "/{presupuesto_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Eliminar un presupuesto"
+)
+def eliminar(
+    presupuesto_id: IdDeRuta, servicio: ServicioDePresupuestos, usuario: UsuarioActual
 ) -> None:
-    servicio.eliminar(usuario_id, presupuesto_id)
+    servicio.eliminar(usuario.id, presupuesto_id)

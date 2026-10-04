@@ -1,4 +1,10 @@
-"""Endpoint de salud. Lo usa la CI y el monitoreo para saber si la app respondio."""
+"""Endpoint de salud. Lo usa la CI y el monitoreo para saber si la app respondio.
+
+Es el unico que vive fuera de `/api/v1` y sin token, y las dos cosas son a
+proposito: no es parte del contrato de negocio que se versiona -un balanceador
+o el paso de la CI le pegan siempre a la misma ruta, exista la version que
+exista- y quien pregunta si la aplicacion esta viva todavia no es nadie.
+"""
 
 from fastapi import APIRouter
 

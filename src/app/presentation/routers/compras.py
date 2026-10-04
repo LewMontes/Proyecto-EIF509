@@ -1,21 +1,18 @@
-"""Endpoints de Compra: listado, detalle, corrección manual y bitácora.
+"""Endpoints de Compra: el Proceso 1 del dominio y todo lo que se le hace a una compra.
 
-Antes de esto, `Compra` -el resultado real de conciliar un comprobante-
-solo se podía "ver" indirectamente, a través de los campos planos de
-`Comprobante` o de los eventos sueltos de su bitácora en Mongo. Nunca su
-propio estado (`requiere_revision`, con qué método de pago y categoría
-quedó). Estos endpoints son lo que la hace un dato de primera clase: se
-puede listar, filtrar por "necesita revisión", ver en detalle, agrupar el
-gasto del mes por categoría -y ahí sí, bajar hasta el comprobante que la
-generó (`/bitacora`, el diferenciador declarado del dominio, ver ADR-002).
+`POST /compras` **es** el Proceso 1 -la captura manual con desglose-. El resto
+son las operaciones sobre una compra que ya existe, haya nacido de ese proceso
+o de la ingesta de un comprobante (Proceso 2): consultarla, corregirla,
+anularla, y bajar hasta su trazabilidad.
 
-Como el resto de la API de este repositorio, el titular se identifica con el
-parámetro `usuario_id`: no hay capa de autenticación todavía.
+Los recursos son sustantivos y la operación la dice el verbo HTTP: corregir es
+`PATCH /compras/{id}`, anular es `DELETE /compras/{id}`. No hay
+`/compras/{id}/resolver` ni `/compras/{id}/anular`.
 """
 
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response, status
 
 from app.business.errors import RecursoNoEncontrado
 from app.business.services.compra_service import CompraDetallada
@@ -29,18 +26,21 @@ from app.presentation.dependencies import (
     ServicioDeCompras,
     ServicioDeConciliacion,
     ServicioDeRegistroDeCompras,
+    UsuarioActual,
 )
+from app.presentation.rutas import API_V1, ubicacion
 from app.presentation.schemas import (
     CompraRegistradaResponse,
     CompraResponse,
+    CorregirCompraRequest,
     EventoBitacoraResponse,
     GastoDeCategoriaResponse,
+    IdDeRuta,
     LineaCompraResponse,
     RegistrarCompraRequest,
-    ResolverRevisionCompraRequest,
 )
 
-router = APIRouter(prefix="/api/compras", tags=["compras"])
+router = APIRouter(prefix=f"{API_V1}/compras", tags=["compras"])
 
 
 def _respuesta(detalle: CompraDetallada) -> CompraResponse:
@@ -110,12 +110,14 @@ def _respuesta_registrada(registrada: CompraRegistrada) -> CompraRegistradaRespo
 @router.post(
     "",
     response_model=CompraRegistradaResponse,
-    status_code=201,
-    summary="Registrar a mano una compra con su desglose por renglón",
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar a mano una compra con su desglose por renglón (Proceso 1)",
 )
 def registrar(
     peticion: RegistrarCompraRequest,
     servicio: ServicioDeRegistroDeCompras,
+    usuario: UsuarioActual,
+    respuesta: Response,
 ) -> CompraRegistradaResponse:
     """El Proceso 1 del dominio: la compra que no llegó por correo.
 
@@ -124,40 +126,38 @@ def registrar(
     categoría, e impacta el presupuesto de cada categoría afectada -todo en
     una sola transacción.
     """
-    return _respuesta_registrada(
-        servicio.registrar(
-            RegistrarCompraComando(
-                usuario_id=peticion.usuario_id,
-                comercio_id=peticion.comercio_id,
-                fecha=peticion.fecha,
-                lineas=tuple(
-                    LineaDeCompraComando(
-                        descripcion=linea.descripcion,
-                        cantidad=linea.cantidad,
-                        precio_unitario=linea.precio_unitario,
-                        descuento=linea.descuento,
-                        exento_impuesto=linea.exento_impuesto,
-                        categoria_id=linea.categoria_id,
-                    )
-                    for linea in peticion.lineas
-                ),
-                moneda=peticion.moneda,
-                metodo_pago_id=peticion.metodo_pago_id,
-                descripcion=peticion.descripcion,
-                descuento=peticion.descuento,
-                total_declarado=peticion.total_declarado,
-                tipo_cambio_aplicado=peticion.tipo_cambio_aplicado,
-            )
+    registrada = servicio.registrar(
+        RegistrarCompraComando(
+            usuario_id=usuario.id,
+            comercio_id=peticion.comercio_id,
+            fecha=peticion.fecha,
+            lineas=tuple(
+                LineaDeCompraComando(
+                    descripcion=linea.descripcion,
+                    cantidad=linea.cantidad,
+                    precio_unitario=linea.precio_unitario,
+                    descuento=linea.descuento,
+                    exento_impuesto=linea.exento_impuesto,
+                    categoria_id=linea.categoria_id,
+                )
+                for linea in peticion.lineas
+            ),
+            moneda=peticion.moneda,
+            metodo_pago_id=peticion.metodo_pago_id,
+            descripcion=peticion.descripcion,
+            descuento=peticion.descuento,
+            total_declarado=peticion.total_declarado,
+            tipo_cambio_aplicado=peticion.tipo_cambio_aplicado,
         )
     )
+    respuesta.headers["Location"] = ubicacion("compras", registrada.compra_id)
+    return _respuesta_registrada(registrada)
 
 
-@router.get(
-    "", response_model=list[CompraResponse], summary="Listar las compras reales del titular"
-)
+@router.get("", response_model=list[CompraResponse], summary="Listar las compras del titular")
 def listar(
     servicio: ServicioDeCompras,
-    usuario_id: int = Query(gt=0, le=2_147_483_647),
+    usuario: UsuarioActual,
     requiere_revision: bool | None = Query(
         default=None,
         description="True trae solo las que quedaron sin método de pago o sin categoría.",
@@ -166,7 +166,7 @@ def listar(
 ) -> list[CompraResponse]:
     return [
         _respuesta(detalle)
-        for detalle in servicio.listar_del_titular(usuario_id, requiere_revision, limite)
+        for detalle in servicio.listar_del_titular(usuario.id, requiere_revision, limite)
     ]
 
 
@@ -177,7 +177,7 @@ def listar(
 )
 def gasto_por_categoria(
     servicio: ServicioDeCompras,
-    usuario_id: int = Query(gt=0, le=2_147_483_647),
+    usuario: UsuarioActual,
     anio: int = Query(ge=2000, le=2100),
     mes: int = Query(ge=1, le=12),
     # `Annotated` y no un default como los demás parámetros: con
@@ -198,7 +198,7 @@ def gasto_por_categoria(
     entraría por la ruta del detalle y fallaría al no poder leerlo como un id.
     """
     filas = servicio.gasto_por_categoria_del_titular(
-        usuario_id, anio, mes, categoria_id, metodo_pago_id, incluir_sin_categoria
+        usuario.id, anio, mes, categoria_id, metodo_pago_id, incluir_sin_categoria
     )
     return [
         GastoDeCategoriaResponse(
@@ -211,59 +211,71 @@ def gasto_por_categoria(
     ]
 
 
-@router.get("/{compra_id}", response_model=CompraResponse, summary="Detalle de una compra real")
+@router.get("/{compra_id}", response_model=CompraResponse, summary="Detalle de una compra")
 def detalle(
-    compra_id: int,
-    servicio: ServicioDeCompras,
-    usuario_id: int = Query(gt=0, le=2_147_483_647),
+    compra_id: IdDeRuta, servicio: ServicioDeCompras, usuario: UsuarioActual
 ) -> CompraResponse:
-    return _respuesta(servicio.obtener_detalle_del_titular(usuario_id, compra_id))
+    """`404` si la compra no existe **o es de otro titular**: el servicio la busca
+    por id y por dueño a la vez, así que una ajena es indistinguible de una que
+    no existe."""
+    return _respuesta(servicio.obtener_detalle_del_titular(usuario.id, compra_id))
 
 
-@router.post(
-    "/{compra_id}/resolver",
+@router.patch(
+    "/{compra_id}",
     response_model=CompraResponse,
-    summary="Corregir a mano el método de pago y/o la categoría de una compra",
+    summary="Corregir el método de pago y/o la categoría de una compra",
 )
-def resolver(
-    compra_id: int,
-    peticion: ResolverRevisionCompraRequest,
+def corregir(
+    compra_id: IdDeRuta,
+    peticion: CorregirCompraRequest,
     servicio: ServicioDeCompras,
     conciliacion: ServicioDeConciliacion,
-    usuario_id: int = Query(gt=0, le=2_147_483_647),
+    usuario: UsuarioActual,
 ) -> CompraResponse:
     """La corrección manual de una compra que quedó `requiere_revision`.
 
-    Es el paso 4 del Proceso 1 del dominio aplicado a lo que entró por correo:
-    el titular confirma o corrige, y esa corrección es la que hace aprender al
-    sistema.
+    `PATCH` porque es una modificación parcial: solo se toca lo que viene en
+    el cuerpo. El titular confirma o corrige, y esa corrección es la que hace
+    aprender al sistema. `409` si la compra está anulada.
     """
     conciliacion.resolver_revision(
-        usuario_id, compra_id, peticion.metodo_pago_id, peticion.categoria_id
+        usuario.id, compra_id, peticion.metodo_pago_id, peticion.categoria_id
     )
-    return _respuesta(servicio.obtener_detalle_del_titular(usuario_id, compra_id))
+    return _respuesta(servicio.obtener_detalle_del_titular(usuario.id, compra_id))
+
+
+@router.delete("/{compra_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Anular una compra")
+def anular(
+    compra_id: IdDeRuta, conciliacion: ServicioDeConciliacion, usuario: UsuarioActual
+) -> None:
+    """Anula la compra y le devuelve su monto a los presupuestos que había impactado.
+
+    Nunca se borra físicamente: queda `ANULADA`, sigue consultable y deja de
+    contar como gasto. `409` si ya estaba anulada.
+    """
+    conciliacion.anular(usuario.id, compra_id)
 
 
 @router.get(
     "/{compra_id}/bitacora",
     response_model=list[EventoBitacoraResponse],
-    summary="La trazabilidad completa de una compra: de qué correo nació y cómo se clasificó",
+    summary="La trazabilidad completa de una compra: de dónde nació y cómo se clasificó",
 )
 def bitacora_de_compra(
-    compra_id: int,
+    compra_id: IdDeRuta,
     servicio: ServicioDeCompras,
     bitacora: ServicioDeBitacora,
-    usuario_id: int = Query(gt=0, le=2_147_483_647),
+    usuario: UsuarioActual,
 ) -> list[EventoBitacoraResponse]:
     """Lista de eventos en el orden en que ocurrieron.
 
     404 si la compra no existe o no pertenece a este titular -verificado
     contra PostgreSQL, que sí sabe de quién es cada compra; Mongo no filtra
     por dueño por sí solo. También 404 si Mongo no tiene nada guardado para
-    ella todavía -por ejemplo, si se conciliaron antes de que Mongo
-    estuviera disponible.
+    ella todavía.
     """
-    servicio.obtener_del_titular(usuario_id, compra_id)
+    servicio.obtener_del_titular(usuario.id, compra_id)
     eventos = bitacora.bitacora_de(compra_id)
     if eventos is None:
         raise RecursoNoEncontrado(f"No hay bitácora para la compra {compra_id}.")
