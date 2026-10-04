@@ -123,12 +123,13 @@ adelantadas: la sugerencia de categoría por comercio y las transferencias SINPE
 > de verdad del esquema: aplicando `V1`…`V7` sobre una base limpia, las 14 tablas y todas las
 > columnas que el mapeo usa existen. Ver [la capa de negocio § 8](negocio.md#8--lo-que-queda-abierto).
 
-**Lo que sigue abierto:** la aplicación **crea** su esquema en vez de **validarlo** contra el de
-Flyway. La validación en sí ya existe y corre en el CI
--`test_el_mapeo_calza_con_el_esquema_que_hay_en_la_base` compara tabla por tabla y columna por
-columna contra el `Inspector` de una base real, que es lo que hace `ddl-auto=validate`. Lo que falta
-es que el esquema contra el que valida venga de Flyway y no del propio mapeo; queda anotado en la
-[§7](#7--lo-que-queda-abierto).
+> **Cerrado en el Laboratorio 5.** La validación corre ahora contra el esquema de Flyway: la
+> fixture de integración aplica `V1`…`V8` sobre el contenedor en vez de llamar a `create_all()`, y
+> `test_el_mapeo_calza_con_el_esquema_que_hay_en_la_base` compara el mapeo contra ese esquema, que
+> es lo que hace `ddl-auto=validate`. Para que pasara hubo que mapear las columnas que `V3` exige y
+> el mapeo ignoraba -`comprobante.usuario_id`, `remitente`, `recibido_en`, `estado`,
+> `intentos_procesamiento`, `motivo_fallo` y `linea_compra.usuario_id`- y nombrar los tipos
+> enumerados como en las migraciones. Ver la [§7](#7--lo-que-queda-abierto).
 
 ---
 
@@ -481,17 +482,23 @@ Docker, así que el contenedor lo administra la propia prueba: no hace falta dec
 
 ## 7 · Lo que queda abierto
 
-Una sola cosa, y está acotada: **que el esquema contra el que se valida venga de Flyway.**
+Lo que esta sección declaraba abierto desde el Laboratorio 3 -**que el esquema contra el que se
+valida venga de Flyway**- **quedó cerrado en el Laboratorio 5**, en los dos pasos que pedía:
 
-La validación ya existe y corre en el CI, pero hoy compara el mapeo contra un esquema que el propio
-mapeo creó -así que por construcción coincide. Cerrarlo del todo pide dos cosas:
-
-1. Migraciones `V6` y `V7` que lleven `comercio_categoria_sugerida` y `transferencia_sinpe` al
-   linaje de Flyway, para que las dos numeraciones vuelvan a describir la misma base
+1. Las migraciones `V6` y `V7` (Laboratorio 4) llevaron `comercio_categoria_sugerida` y
+   `transferencia_sinpe` al linaje de Flyway, y `V8` (Laboratorio 5) agregó el rol de la cuenta
    ([§2.3](#23--estado-del-mapeo-frente-al-esquema-del-laboratorio-2)).
-2. Que la fixture de integración aplique esas migraciones sobre el contenedor en vez de llamar a
-   `create_all()`. La prueba de validación no cambia una línea: recién ahí empieza a poder fallar,
-   que es cuando de verdad sirve.
+2. La fixture de integración aplica `V1`…`V8` sobre el contenedor en vez de llamar a
+   `create_all()`. La prueba de validación no cambió una línea, y recién ahora puede fallar -que es
+   cuando de verdad sirve-. De hecho falló: destapó siete columnas sin mapear y siete tipos
+   enumerados con otro nombre, que es lo que se corrigió.
+
+Tres pruebas vigilan que el mapeo y las migraciones no se separen: la de columnas, la de llaves
+foráneas -que ahora entiende las llaves compuestas del esquema- y una nueva de tipos enumerados.
+
+Lo que sigue siendo cierto, y se deja anotado: en desarrollo, con SQLite, la aplicación todavía
+crea su esquema con `create_all()` al arrancar. Flyway es la fuente de verdad del esquema de
+PostgreSQL; el de SQLite es una conveniencia para levantar el proyecto sin Docker.
 
 ---
 

@@ -27,7 +27,7 @@ aplicaron, para que cada punto de la rúbrica se pueda ubicar sin ambigüedad:
 | Bean Validation | `pydantic.Field(...)` en los DTOs de entrada (`presentation/schemas.py`) |
 | *Records* de entrada y salida | `@dataclass(frozen=True)` en `business/` y modelos Pydantic en `presentation/` |
 | MapStruct | Mapeo manual explícito en el router (`_respuesta()`) |
-| Mockito | Dobles de prueba escritos a mano sobre SQLite en memoria (ver § 7.2) |
+| Mockito | `unittest.mock.create_autospec` sobre cada repositorio (ver § 7.2) |
 | JaCoCo | `coverage` sobre `src/app/business` |
 | `extends RuntimeException` | `class ErrorDeNegocio(Exception)` y su jerarquía |
 
@@ -458,7 +458,7 @@ servicio- sabe qué regla falló sin leer el mensaje:
 
 | Familia | Reglas con nombre |
 |---|---|
-| `DatosInvalidos` | `FechaFutura` · `MontoNoPositivo` · `CompraSinRenglones` · `DescuentoExcedido` · `TipoDeCambioRequerido` · `CorreccionVacia` |
+| `DatosInvalidos` | `FechaFutura` · `MontoNoPositivo` · `CompraSinRenglones` · `DescuentoExcedido` · `TipoDeCambioRequerido` · `RangoInvalido` · `CorreccionVacia` |
 | `ReglaDeNegocioViolada` | `CategoriaNoEsHoja` · `CategoriaInactiva` · `CategoriaConSubcategorias` · `RenglonSinCategoria` · `CuadreFueraDeTolerancia` · `MetodoPagoInactivo` · `MetodoPagoAmbiguo` · `CampoNoAplicaAlTipo` · `NombreDuplicado` · `PrioridadDuplicada` · `CampoDeReglaNoSoportado` · `PresupuestoYaExiste` · `ComercioYaExiste` · `CorreoYaRegistrado` · `UsuarioInactivo` · `CuentaCorreoYaVinculada` · `CuentaCorreoInactiva` · `ComprobanteDuplicado` · `TransicionDeComprobanteInvalida` · `CompraYaAnulada` |
 | `NoAutenticado` | `CredencialesInvalidas` |
 
@@ -632,53 +632,87 @@ hasta ahora el mapeo ignoraba.
 
 ### 7.1 · Pruebas unitarias de las reglas
 
-Corren sobre SQLite en memoria: sin archivos, sin red, sin infraestructura, y cada prueba arranca
-con la base vacía.
+Hay dos juegos de pruebas sobre las mismas reglas, y prueban cosas distintas.
+
+**Con dobles** (`tests/unitarias/`) · *solitarias*: cada repositorio es un doble de
+`create_autospec`, así que lo único que se ejecuta de verdad es el código del servicio. Son las que
+pidió la retroalimentación del Laboratorio 4.
+
+| Archivo | Pruebas | Qué cubre |
+|---|---|---|
+| `tests/unitarias/test_registrar_compra_con_dobles.py` | 29 | Cada camino de regla del Proceso 1 |
+| `tests/unitarias/test_conciliacion_con_dobles.py` | 32 | Cada camino de regla del Proceso 2, la anulación y la corrección |
+
+**Sobre SQLite en memoria** (`tests/`) · *sociables*: el servicio corre con sus repositorios reales.
 
 | Archivo | Pruebas | Qué cubre |
 |---|---|---|
 | `tests/test_registrar_compra_service.py` | 31 | Cada regla, validación y cálculo del Proceso 1 |
-| `tests/test_conciliacion_service.py` | 23 | Cada regla y cálculo del Proceso 2 |
+| `tests/test_conciliacion_service.py` | 31 | Cada regla y cálculo del Proceso 2 |
+| `tests/test_patrones.py` | 29 | La cadena de responsabilidad y el State, solos |
 | `tests/test_comercio_service.py` | 19 | Normalización, resolución del catálogo, categoría sugerida |
 | `tests/test_presupuesto_service.py` | 16 | Límite, umbral, las tres franjas de estado |
 | `tests/test_regla_categorizacion_service.py` | 12 | Prioridad sin empates, campo soportado, desactivación |
 | `tests/test_categoria_service.py` | 11 | Nombre, color, jerarquía, siembra estándar |
 | `tests/test_metodo_pago_service.py` | 10 | Últimos cuatro, duplicados, día de corte |
-| **Total sobre las reglas** | **122** | El mínimo del enunciado son 8 |
 
-La suite completa son **189** pruebas sobre SQLite más **14** de integración contra PostgreSQL real.
+En total **220** pruebas sobre las reglas (61 con dobles y 159 sobre SQLite); el mínimo del
+enunciado son 8. La suite completa son **407** pruebas rápidas más **55** de integración contra
+PostgreSQL real.
 
 ### 7.2 · Sobre los dobles de prueba
 
-El enunciado pide Mockito. En Python el equivalente directo es `unittest.mock`, y se usa donde de
-verdad hace falta simular:
+El enunciado pide Mockito. En Python el equivalente es `unittest.mock`, y dentro de él
+**`create_autospec`**: el doble copia la firma de la clase real, así que llamar a un método que no
+existe, o con los argumentos equivocados, hace fallar la prueba en vez de pasar en silencio. Un
+`Mock()` pelado acepta cualquier cosa, y una prueba que sigue en verde después de renombrar el
+método que simula no prueba nada.
+
+```python
+sesion = create_autospec(Session, instance=True)
+compras = create_autospec(CompraRepository, instance=True)
+compras.sesion = sesion
+categorias.obtener_de_usuario.return_value = Categoria(id=30, es_hoja=True, activa=True, ...)
+servicio = RegistrarCompraService(compras, lineas, categorias, ...)
+```
+
+Lo que los dobles dejan verificar y la base no deja ver con claridad:
+
+| Qué | Cómo se verifica |
+|---|---|
+| **Una regla rota corta antes de escribir** | `compras.agregar.assert_not_called()` y `sesion.commit.assert_not_called()` |
+| **La propiedad del recurso** | `categorias.obtener_de_usuario.assert_called_once_with(30, USUARIO_ID)`: no existe una búsqueda sin el dueño |
+| **Un solo `commit`** | `sesion.commit.assert_called_once_with()` |
+| **La bitácora va después de confirmar** | Se registra el orden de las llamadas: la primera es `commit` |
+| **El `rollback` ocurre antes de contar el intento** | `rollback.side_effect` anota cuántos intentos llevaba el comprobante en ese instante |
+| **El proveedor del tipo de cambio caído** | `tipo_cambio.obtener.side_effect = ErrorDeProveedorExterno(...)` → el comprobante queda pendiente |
+| **El tercer fallo** | `lineas.agregar.side_effect = RuntimeError(...)`, tres veces → `FALLIDO` |
+| **Lo que no hace falta consultar, no se consulta** | En colones, `tipos_cambio.buscar.assert_not_called()` |
+
+Las pruebas sociables **se conservan** y no son redundantes: un doble verifica que el servicio
+llamó al repositorio, pero no que la transacción quede coherente ni que la consulta devuelva lo que
+el servicio cree. Las dos juntas cubren lo que cada una no puede: los dobles aíslan la regla, SQLite
+ejercita el ORM, y `tests/integracion/` la base de verdad.
+
+Además se usan dobles en dos lugares que ya existían:
 
 - `tests/integracion/test_rollback_conciliacion.py` usa `unittest.mock.patch.object` sobre
-  `PresupuestoRepository.buscar` y `LineaCompraRepository.agregar` para provocar el fallo en un
-  paso concreto. Es el único modo de romper el proceso a mitad de camino sin tocar el código del
-  servicio: el que corre es `ConciliacionService` sin modificar.
-
-En el resto de las pruebas de reglas se usan **dobles escritos a mano** en vez de *mocks*, y eso sí
-es una decisión que conviene explicar:
-
-- `BitacoraComprasService(BitacoraRepository(None))` — una bitácora sin colección: cualquier
-  llamada es un no-op. Es el mismo objeto nulo que usa la aplicación cuando Mongo no está
-  configurado, así que la prueba ejercita un camino real y no una simulación.
-- Un `TipoCambioService` falso que devuelve una tasa fija, para que la conversión de moneda se
-  pueda verificar sin salir a la red.
-- La sesión de SQLAlchemy **no** se simula: es SQLite en memoria de verdad. Un *mock* del
-  repositorio verificaría que el servicio lo llamó, pero no que la transacción quede coherente,
-  que es justamente lo que hay que probar.
-
-Se aísla la regla sin aislar el ORM, porque el ORM es parte del comportamiento que estos servicios
-garantizan.
+  `PresupuestoRepository.buscar` y `LineaCompraRepository.agregar` para provocar el fallo en un paso
+  concreto contra PostgreSQL real.
+- `BitacoraComprasService(BitacoraRepository(None))` — una bitácora sin colección. Es el mismo
+  objeto nulo que usa la aplicación cuando Mongo no está configurado.
 
 ### 7.3 · Pruebas de integración
 
 En `tests/integracion/`, contra un `postgres:16-alpine` real levantado por la propia prueba con
-Testcontainers: lo que SQLite no puede probar igual de bien -`NUMERIC` exacto, `ON DELETE CASCADE`
-y `RESTRICT` reales, el largo real de un `VARCHAR`, ver [la capa de persistencia § 6](persistencia.md)-
-y el *rollback* de los procesos (§ 3.4).
+Testcontainers. Desde el Laboratorio 5 **el esquema lo crean las migraciones de Flyway**: la fixture
+aplica `V1` a `V8` en orden, en vez de `Base.metadata.create_all()`. Así las pruebas corren contra
+el esquema real -con sus `CHECK`, sus llaves foráneas compuestas y sus tipos enumerados- y no contra
+uno que el propio mapeo creó.
+
+Ahí viven lo que SQLite no puede probar igual de bien -`NUMERIC` exacto, `ON DELETE CASCADE`, el
+largo real de un `VARCHAR`, ver [la capa de persistencia § 6](persistencia.md)-, el *rollback* de la
+conciliación (§ 3.4) y la API de punta a punta ([API § 7](api.md#7--pruebas-de-integración)).
 
 ### 7.4 · Cobertura
 
@@ -690,14 +724,12 @@ Mide solo `src/app/business`, que es donde viven las reglas: que un router o un 
 SQLAlchemy estén cubiertos no dice nada sobre si una regla de negocio tiene prueba, y promediarlos
 escondería justo lo que importa.
 
-**Cobertura actual: 93.07 %**, con el umbral en 70 % (`fail_under` en `pyproject.toml`). El CI la
+**Cobertura actual: 94.12 %**, con el umbral en 70 % (`fail_under` en `pyproject.toml`). El CI la
 mide en el mismo paso que corre las pruebas, así que si baja del umbral el paso falla igual que si
 se rompiera una prueba -el reporte no es informativo, es una condición.
 
 Se deja el umbral en 70 y no en el valor real para que agregar una rama sin prueba avise, sin que
-cada línea nueva rompa el CI por un punto decimal. El archivo más bajo es `compra_service.py`
-(80 %): son lecturas, no reglas -lo que de verdad importa que esté cubierto son los dos procesos,
-en 94 % y 95 %.
+cada línea nueva rompa el CI por un punto decimal. Los dos procesos están en 96 %.
 
 ---
 
@@ -709,9 +741,9 @@ Declararlo es parte de la entrega: lo que no se dice, se encuentra.
    `comprobante.usuario_id`, `remitente` y `recibido_en`, y `linea_compra.usuario_id`, ya están
    mapeadas -junto con `estado`, `intentos_procesamiento` y `motivo_fallo`-, y los tipos enumerados
    del mapeo llevan el mismo nombre que los de Flyway (`estado_compra`, `campo_regla`...).
-2. **La aplicación sigue creando su esquema con `create_all()`**, no con Flyway. Las migraciones
-   son la fuente de verdad documentada del modelo, pero todavía no son la que la app aplica al
-   arrancar; mientras las dos coexistan, nada impide que vuelvan a separarse.
+2. **La aplicación sigue creando su esquema con `create_all()`** al arrancar en desarrollo, no con
+   Flyway. Lo que cambió es que ya no pueden separarse en silencio: las pruebas de integración
+   corren contra el esquema de Flyway, y si el mapeo deja de calzar con las migraciones fallan.
 3. **Los servicios de catálogo devuelven la entidad del ORM** al router en vez de un DTO propio
    (§ 4.3). Los dos procesos del dominio sí cumplen la frontera entera, incluidos `conciliar` y
    `resolver_revision`.
@@ -758,7 +790,7 @@ faltaba era el código.
 | Sin tipo de cambio para su fecha, el comprobante queda pendiente | Se usaba tasa `1` | Queda `PARSEADO` con el motivo y sin compra; `POST /comprobantes/{id}/reintentos` lo concilia cuando la tasa existe (§ 2.1) |
 | Estados del comprobante, con `FALLIDO` tras tres intentos | El mapeo no tenía la columna `estado` | Los cinco estados, como patrón State; el intento fallido se cuenta fuera de la transacción revertida (§ 3.3 · § 6.2) |
 | Anular una compra devuelve su monto al presupuesto | No existía | `ConciliacionService.anular` · `DELETE /api/v1/compras/{id}` (§ 2.1) |
-| Excepciones con nombre de regla (`CategoriaNoEsHoja`, `CuadreFueraDeTolerancia`...) heredando de `ReglaDeNegocioViolada` | Solo las familias genéricas | 27 excepciones con nombre; el manejo HTTP no cambió porque heredan de su familia (§ 5) |
+| Excepciones con nombre de regla (`CategoriaNoEsHoja`, `CuadreFueraDeTolerancia`...) heredando de `ReglaDeNegocioViolada` | Solo las familias genéricas | 28 excepciones con nombre; el manejo HTTP no cambió porque heredan de su familia (§ 5) |
 
 ### 9.3 · Implementar los patrones como tales
 
@@ -768,12 +800,25 @@ faltaba era el código.
 | El «Comando» es un DTO inmutable | Se reconoce como tal y deja de contarse como patrón (§ 6.3) |
 | Un State para el ciclo del comprobante sería un segundo patrón presente en el dominio | `ciclo_comprobante.py`: una clase por estado, con sus transiciones (§ 6.2) |
 
+### 9.4 · Agregar pruebas unitarias con dobles
+
+| Sugerencia | Qué se hizo | Dónde |
+|---|---|---|
+| Las pruebas de reglas eran sociables: `create_autospec` de los repositorios para los caminos de regla de ambos procesos | 61 pruebas nuevas en las que cada repositorio es un doble de `create_autospec`: 29 del Proceso 1 y 32 del Proceso 2. Las sociables se conservan (§ 7.2) | `tests/unitarias/` |
+| Aplicar `V1` a `V7` en `tests/integracion/conftest.py` para que el *rollback* pase también contra el esquema de Flyway | La fixture aplica `V1`…`V8` en orden. Para que pasara hubo que mapear las columnas que el esquema exige y nombrar los tipos enumerados como en las migraciones. Las 4 pruebas de *rollback* pasan contra ese esquema, y las otras 51 de integración también | `tests/integracion/conftest.py` |
+
+Dos pruebas nuevas vigilan que no vuelvan a separarse:
+`test_los_tipos_enumerados_del_mapeo_son_los_de_las_migraciones` y
+`test_las_llaves_foraneas_del_mapeo_existen_en_la_base`, que ahora entiende las llaves compuestas
+del esquema.
+
 ---
 
 ## Documentos relacionados
 
 | Documento | Qué contiene |
 |---|---|
+| [API REST](api.md) | El contrato público: recursos, errores, paginación, seguridad y pruebas de integración |
 | [Propuesta de dominio](propuesta-dominio.md) | El negocio, las entidades y los dos procesos con sus reglas |
 | [Capa de persistencia](persistencia.md) | Mapeo ORM, repositorios, N+1 y consultas de negocio |
 | [Modelo de datos](modelo-de-datos.md) | El esquema relacional y el subdominio documental |

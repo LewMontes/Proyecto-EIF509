@@ -12,7 +12,7 @@ Universidad Nacional · Escuela de Informática y Computación
 |---|---------------------------------------------------------|
 | **Integrantes** | Jose Alexis Solís Carvajal · 1-1623-0238          |
 |  |    Luis Antonio Montes de Oca Ruiz · 1-1800-0270     |
-| **Entrega actual** | Laboratorio 4 — La capa de negocio completa |
+| **Entrega actual** | Laboratorio 5 — API REST y servicios web |
 
 ---
 
@@ -33,26 +33,44 @@ Universidad Nacional · Escuela de Informática y Computación
 
 ## Qué incluye este laboratorio
 
-El **Laboratorio 4** entrega **la capa de negocio completa**: los dos procesos del dominio como
+El **Laboratorio 5** expone la capa de negocio como **una API REST profesional**: un contrato
+versionado y documentado, con semántica HTTP correcta, errores estándar, colecciones paginadas y
+seguridad con JWT y roles, verificado con pruebas de integración.
+
+| Entregable | Dónde está |
+|---|---|
+| Endpoints REST versionados bajo `/api/v1`: las entidades principales y los dos procesos, con `201` + `Location`, `204`, `404`, `409` y `422` | [`presentation/routers/`](src/app/presentation/routers/) · [API §1](docs/api.md#1--diseño-rest) |
+| Manejo global de errores con Problem Details (RFC 9457) y validación de formato en los DTOs; ninguna traza expuesta | [`errores.py`](src/app/presentation/errores.py) · [`schemas.py`](src/app/presentation/schemas.py) · [API §3](docs/api.md#3--errores-estándar-y-validación) |
+| Colecciones paginadas con metadatos, orden por parámetro y diez filtros de negocio con *Specifications* | [`paginacion.py`](src/app/data/paginacion.py) · [`especificaciones.py`](src/app/data/repositories/especificaciones.py) · [API §4](docs/api.md#4--paginación-orden-y-filtros) |
+| Seguridad: `POST /api/v1/auth/login`, API *stateless*, dos roles con autorización por endpoint y propiedad del recurso verificada en el servicio | [`dependencies.py`](src/app/presentation/dependencies.py) · [`auth_service.py`](src/app/business/services/auth_service.py) · [API §5](docs/api.md#5--seguridad) |
+| Documentación OpenAPI con Swagger UI operativa, y una colección `.http` que ejercita las 42 operaciones | `/docs` · [`docs/api/gastonomo.http`](docs/api/gastonomo.http) |
+| Pruebas de integración de la API con Testcontainers: `201`, `400`, `401`, `403`, `404`, `409` y `422` | [`test_api_postgres.py`](tests/integracion/test_api_postgres.py) · [API §7](docs/api.md#7--pruebas-de-integración) |
+| Documento técnico del contrato | [API REST](docs/api.md) |
+
+**La retroalimentación del Laboratorio 4** se atendió completa en esta misma entrega: el Proceso 2
+quedó conectado con la aplicación, las reglas se alinearon con la propuesta, los patrones se
+implementaron como tales y se agregaron las pruebas con dobles. El detalle, sugerencia por
+sugerencia, está en [Capa de negocio §9](docs/negocio.md#9--respuesta-a-la-retroalimentación-del-laboratorio-4).
+
+El **Laboratorio 4**, que sigue en el repositorio, entregó **la capa de negocio completa**: los dos procesos del dominio como
 servicios con reglas, la garantía transaccional del proceso multi-paso, la frontera de DTOs y los
 patrones de diseño aplicados.
 
 | Entregable | Dónde está |
 |---|---|
-| Proceso 1 · registro manual de una compra con desglose por renglón | [`registrar_compra_service.py`](src/app/business/services/registrar_compra_service.py) · `POST /api/compras` |
-| Proceso 2 · conciliación de un comprobante, en una sola transacción de cinco tablas | [`conciliacion_service.py`](src/app/business/services/conciliacion_service.py) |
-| Excepciones propias del dominio, sin ninguna referencia a HTTP | [`errors.py`](src/app/business/errors.py) · traducidas solo en [`main.py`](src/app/main.py) |
+| Proceso 1 · registro manual de una compra con desglose por renglón | [`registrar_compra_service.py`](src/app/business/services/registrar_compra_service.py) · `POST /api/v1/compras` |
+| Proceso 2 · conciliación de un comprobante, en una sola transacción de cinco tablas | [`conciliacion_service.py`](src/app/business/services/conciliacion_service.py) · `POST /api/v1/comprobantes` |
+| Excepciones propias del dominio, sin ninguna referencia a HTTP | [`errors.py`](src/app/business/errors.py) · traducidas solo en [`errores.py`](src/app/presentation/errores.py) |
 | Prueba de *rollback*: el fallo se provoca **dentro** del servicio, contra PostgreSQL real | [`test_rollback_conciliacion.py`](tests/integracion/test_rollback_conciliacion.py) |
 | Frontera DTO: comandos de entrada y resultados de salida, con mapeo manual | [`schemas.py`](src/app/presentation/schemas.py) · las dataclasses de `business/` |
 | Dos patrones de diseño, con la señal que justificó cada uno | [Capa de negocio §6](docs/negocio.md#6--patrones-de-diseño-aplicados) |
-| 122 pruebas unitarias de las reglas, con cobertura medida en el CI (93 %, umbral 70 %) | [`tests/`](tests/) |
+| 220 pruebas unitarias de las reglas -61 de ellas con dobles-, con cobertura medida en el CI (94 %, umbral 70 %) | [`tests/`](tests/) · [`tests/unitarias/`](tests/unitarias/) |
 | Migraciones `V6` y `V7`: los cambios de esquema que exige la capa de negocio | [`db/postgres/migrations/`](db/postgres/migrations/) |
 | Documento técnico de la capa | [Capa de negocio](docs/negocio.md) |
 
 > **Lo que queda abierto** está declarado, no escondido, en
-> [Capa de negocio §8](docs/negocio.md#8--lo-que-queda-abierto). El principal: el mapeo todavía no
-> conoce cuatro columnas obligatorias del esquema, que es la otra mitad de la observación del
-> Laboratorio 3.
+> [Capa de negocio §8](docs/negocio.md#8--lo-que-queda-abierto) y en
+> [API §8](docs/api.md#8--lo-que-queda-abierto).
 
 El **Laboratorio 3**, que sigue en el repositorio, entregó **la capa de persistencia**: cómo la
 aplicación habla con el esquema que entregó el Laboratorio 2, mediante ORM y el patrón Repository.
@@ -198,10 +216,48 @@ Respuesta esperada:
 {"estado":"OK - sistema en linea","aplicacion":"Gastonomo","version":"0.1.0"}
 ```
 
-La documentación interactiva de la API se genera sola. Abrila en el navegador:
+El resto de la API exige un token. El recorrido mínimo -registrarse, iniciar sesión y usar el
+token-:
 
-- **Swagger UI** → http://localhost:8000/docs
+```bash
+curl -X POST http://localhost:8000/api/v1/usuarios -H "Content-Type: application/json" -d '{"nombre_completo":"Ana Mora","correo":"ana@gastonomo.cr","contrasena":"una-clave-larga"}'
+```
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/login -H "Content-Type: application/json" -d '{"correo":"ana@gastonomo.cr","contrasena":"una-clave-larga"}'
+```
+
+```bash
+curl http://localhost:8000/api/v1/categorias -H "Authorization: Bearer <access_token>"
+```
+
+Más cómodo que `curl`:
+
+- **Swagger UI** → http://localhost:8000/docs. Pegá el `access_token` en **Authorize** y probá
+  cualquier endpoint desde la página.
+- **La colección** [`docs/api/gastonomo.http`](docs/api/gastonomo.http), con la extensión *REST
+  Client* de VS Code: ejercita las 42 operaciones de arriba hacia abajo.
 - **ReDoc** → http://localhost:8000/redoc
+
+#### Variables de seguridad
+
+| Variable | Para qué | Sin ella |
+|---|---|---|
+| `GASTONOMO_JWT_SECRETO` | Clave con la que se firman los tokens | Se genera una temporal en cada arranque: los tokens dejan de valer al reiniciar |
+| `GASTONOMO_JWT_MINUTOS` | Minutos de vida de cada token | `60` |
+| `GASTONOMO_ADMIN_CORREO` · `GASTONOMO_ADMIN_CONTRASENA` | La cuenta `ADMIN` que se crea al arrancar | No existe ningún administrador. Registrarse por la API siempre crea un `TITULAR` |
+
+Para tener un administrador con el que probar los endpoints de `ADMIN`:
+
+```bash
+GASTONOMO_ADMIN_CORREO=admin@gastonomo.cr GASTONOMO_ADMIN_CONTRASENA=clave-de-admin-123 uvicorn app.main:app --reload --app-dir src
+```
+
+En Windows (PowerShell) las variables se ponen aparte, antes de levantar:
+
+```bash
+$env:GASTONOMO_ADMIN_CORREO = "admin@gastonomo.cr"; $env:GASTONOMO_ADMIN_CONTRASENA = "clave-de-admin-123"
+```
 
 ### Conectarla a PostgreSQL en vez de SQLite
 
@@ -217,9 +273,10 @@ En Windows (PowerShell) la variable se pone aparte:
 $env:GASTONOMO_URL_BASE_DATOS = "postgresql+psycopg://gastonomo:gastonomo_local@localhost:5432/gastonomo"
 ```
 
-La aplicación crea su esquema con `Base.metadata.create_all()`, **no con Flyway**. Son dos linajes
-distintos y con dos tablas de diferencia; la comparación completa está en
-[Persistencia §2.3](docs/persistencia.md#23--estado-del-mapeo-frente-al-esquema-del-laboratorio-2).
+La aplicación crea su esquema con `Base.metadata.create_all()` al arrancar, así que hay que
+apuntarla a una base **vacía**, no a la que ya migró Flyway. El mapeo y las migraciones describen el
+mismo esquema -lo verifican las pruebas de integración, que corren contra `V1`…`V8`-; el detalle está
+en [Persistencia §2.3](docs/persistencia.md#23--estado-del-mapeo-frente-al-esquema-del-laboratorio-2).
 
 La bitácora de compras escribe en una base de Mongo propia (`gastonomo_app`), distinta de la que
 siembra `db/mongo/init/` para el Laboratorio 2 (`gastonomo`). Si Mongo no está levantado, la
@@ -228,18 +285,24 @@ aplicación funciona igual: la bitácora explica lo que pasó, no lo decide (ver
 
 ### Endpoints disponibles
 
-| Método | Ruta | Qué hace |
-|---|---|---|
-| `GET` | `/api/salud` | Confirma que el sistema está en línea |
-| `POST` | `/api/categorias` | Crea una categoría aplicando las reglas del dominio |
-| `GET` | `/api/categorias?usuario_id=1` | Lista las categorías activas de un titular |
-| `GET` | `/api/compras?usuario_id=1` | Lista las compras del titular, más recientes primero. Con `&requiere_revision=true` trae solo las que quedaron sin método de pago o sin categoría |
-| `GET` | `/api/compras/gasto-por-categoria?usuario_id=1&anio=2026&mes=9` | En qué se le fue el mes al titular, agrupado y sumado por la base. Acepta `&categoria_id=` (repetible), `&metodo_pago_id=` e `&incluir_sin_categoria=false` |
-| `GET` | `/api/compras/{id}?usuario_id=1` | Detalle de una compra, con el nombre de su comercio/método/categoría ya resueltos |
-| `GET` | `/api/compras/{id}/bitacora?usuario_id=1` | La trazabilidad de la compra guardada en MongoDB |
+42 operaciones bajo `/api/v1`. La tabla completa -con el rol que exige cada una y su código de
+éxito- está en [API §1.2](docs/api.md#12--los-recursos); este es el resumen por recurso:
 
-El titular se identifica con el parámetro `usuario_id`: **este repositorio todavía no tiene capa de
-autenticación**, que es trabajo de un laboratorio siguiente.
+| Recurso | Operaciones | Notas |
+|---|---|---|
+| `/api/salud` | `GET` | Público y sin versión |
+| `/api/v1/auth/login` | `POST` | Público. Emite el JWT |
+| `/api/v1/usuarios` | `POST` · `GET` · `GET /yo` · `GET /{id}` | Registrarse es público; listar es de `ADMIN` |
+| `/api/v1/categorias` | `POST` · `GET` · `GET /{id}` · `PUT /{id}` · `DELETE /{id}` | |
+| `/api/v1/comercios` | `POST` · `GET` · `GET /{id}` · `PUT /{id}/categoria-sugerida` | El alta es de `ADMIN`. Paginada |
+| `/api/v1/metodos-pago` | `POST` · `GET` · `GET /{id}` · `DELETE /{id}` | |
+| `/api/v1/presupuestos` | `POST` · `GET` · `GET /{id}` · `PUT /{id}` · `DELETE /{id}` | |
+| `/api/v1/reglas-categorizacion` | `POST` · `GET` · `GET /{id}` · `DELETE /{id}` | |
+| `/api/v1/compras` | `POST` · `GET` · `GET /{id}` · `PATCH /{id}` · `DELETE /{id}` · `GET /{id}/bitacora` · `GET /gasto-por-categoria` | **Proceso 1.** Paginada, ordenable y con filtros |
+| `/api/v1/cuentas-correo` | `POST` · `GET` · `GET /{id}` | |
+| `/api/v1/comprobantes` | `POST` · `GET` · `GET /{id}` · `POST /{id}/reintentos` | **Proceso 2.** Paginada |
+
+El titular sale siempre del token: **ningún endpoint acepta `usuario_id`**.
 
 ### 5. Correr las pruebas y el linter
 
@@ -251,25 +314,27 @@ pytest -v
 ruff check . && ruff format --check .
 ```
 
-Son los mismos comandos que ejecuta la integración continua. **40 pruebas** corren contra una base
-SQLite **en memoria**, así que no tocan ningún archivo ni necesitan infraestructura.
+Son los mismos comandos que ejecuta la integración continua. **407 pruebas** corren contra una
+base SQLite **en memoria** o directamente con dobles, así que no tocan ningún archivo ni necesitan
+infraestructura.
 
-Aparte están las **14 pruebas de integración**, que levantan un PostgreSQL 16 real en Docker con
-Testcontainers y lo apagan al terminar:
+Aparte están las **55 pruebas de integración**, que levantan un PostgreSQL 16 real en Docker con
+Testcontainers, le aplican las migraciones de Flyway (`V1`…`V8`) y lo apagan al terminar:
 
 ```bash
 pytest -m integracion
 ```
 
 Verifican lo que SQLite no puede detectar —`NUMERIC` decimal exacto, `ON DELETE CASCADE`, el largo
-de los `VARCHAR`, el `ROLLBACK` real, y que el mapeo calce con el esquema que hay en la base. Si no
-tenés Docker corriendo **se saltan solas**, no fallan. Para correr solo las rápidas:
+de los `VARCHAR`, el `ROLLBACK` real, que el mapeo calce con el esquema de Flyway, y **los códigos de
+estado de la API de punta a punta**. Si no tenés Docker corriendo **se saltan solas**, no fallan. Para correr solo las rápidas:
 
 ```bash
 pytest -m "not integracion"
 ```
 
-El detalle de qué prueba cada una está en [Persistencia §6](docs/persistencia.md#6--cómo-se-prueba).
+El detalle de qué prueba cada una está en [Persistencia §6](docs/persistencia.md#6--cómo-se-prueba),
+[Capa de negocio §7](docs/negocio.md#7--cómo-se-prueba) y [API §7](docs/api.md#7--pruebas-de-integración).
 
 ---
 
@@ -281,27 +346,35 @@ Arquitectura en tres capas más configuración. La regla de oro:
 ```
 src/app/
 ├── presentation/   → Habla HTTP. Recibe JSON, llama al servicio, devuelve JSON.
-│   ├── routers/        salud.py · categorias.py · compras.py
-│   ├── schemas.py      DTOs de entrada y salida
-│   └── dependencies.py arma cada servicio con sus repositorios
+│   ├── routers/        un archivo por recurso: auth · usuarios · categorias · comercios ·
+│   │                   metodos_pago · presupuestos · reglas_categorizacion · compras ·
+│   │                   cuentas_correo · comprobantes · salud
+│   ├── schemas.py      DTOs de entrada y salida, con su validación de formato
+│   ├── errores.py      el manejador global: todo error sale como Problem Details
+│   ├── paginacion.py   los parámetros de página y el sobre de respuesta
+│   ├── rutas.py        la versión del contrato (/api/v1), en un solo lugar
+│   └── dependencies.py arma cada servicio, y la cadena de seguridad (token y rol)
 │
 ├── business/       → Reglas del negocio. No sabe que existe HTTP.
-│   ├── services/       categoria_service.py · compra_service.py ·
-│   │                   bitacora_service.py (trazabilidad en MongoDB)
-│   └── errors.py       violaciones de reglas del dominio
+│   ├── services/       los dos procesos, los servicios de catálogo, la autenticación,
+│   │                   la cadena de categorización y el State del comprobante
+│   ├── seguridad/      contrasenas.py (bcrypt) · tokens.py (JWT)
+│   └── errors.py       familias de error y una excepción con nombre por regla
 │
 ├── data/           → Entidades y consultas. No contiene reglas de negocio.
 │   ├── models/         las 14 entidades mapeadas, más base.py · enums.py · tipos.py
-│   └── repositories/   el único lugar del sistema que consulta datos:
-│                       base_repository.py (genérico), 14 por entidad,
-│                       y bitacora_repository.py (MongoDB)
+│   ├── repositories/   el único lugar del sistema que consulta datos:
+│   │                   base_repository.py (genérico), 14 por entidad,
+│   │                   especificaciones.py (filtros componibles)
+│   │                   y bitacora_repository.py (MongoDB)
+│   └── paginacion.py   SolicitudDePagina · Pagina · paginar
 │
 ├── config/         → Lo que cambia entre máquinas.
-│   ├── settings.py     nombre, versión, URL de la base, Mongo
-│   ├── database.py     motor, sesión por petición y creación del esquema
+│   ├── settings.py     nombre, versión, URL de la base, Mongo, clave de los JWT
+│   ├── database.py     motor, sesión por petición, esquema y siembra del administrador
 │   └── cliente_mongo.py cliente Mongo compartido, con su validador
 │
-└── main.py         → Arma la app y traduce errores de negocio a códigos HTTP.
+└── main.py         → Arma la app: routers, manejadores de error y contrato OpenAPI.
 ```
 
 El esquema que entrega el Laboratorio 2 vive fuera de `src/`, porque es SQL y JavaScript de base de
@@ -310,7 +383,7 @@ datos, no código de la aplicación:
 ```
 db/
 ├── postgres/
-│   ├── migrations/     → V1..V5, el historial versionado del esquema
+│   ├── migrations/     → V1..V8, el historial versionado del esquema
 │   └── seeds/          → datos de ejemplo (callback afterMigrate, no migración)
 ├── mongo/
 │   └── init/           → colección bitacora_compras: validador, índices y datos
@@ -322,8 +395,8 @@ Tres decisiones sostienen la separación, ya que Python no la impone por sí sol
 1. El servicio recibe una **dataclass propia** (`CrearCategoriaComando`), no un modelo de FastAPI.
 2. El repositorio **nunca confirma la transacción**: el `commit` lo hace el servicio, que es el
    único que sabe si la operación de negocio completa terminó bien.
-3. Los errores de negocio son **excepciones propias** sin ninguna referencia a HTTP; `main.py` es
-   el único archivo que las traduce a códigos de respuesta.
+3. Los errores de negocio son **excepciones propias** sin ninguna referencia a HTTP;
+   `presentation/errores.py` es el único archivo que las traduce a códigos de respuesta.
 
 ---
 
@@ -331,6 +404,7 @@ Tres decisiones sostienen la separación, ya que Python no la impone por sí sol
 
 | Documento | Qué contiene |
 |---|---|
+| [API REST](docs/api.md) | **Laboratorio 5.** El contrato público: diseño de los recursos, Problem Details, paginación y *Specifications*, seguridad con JWT y roles, OpenAPI y las pruebas de integración. |
 | [Capa de negocio](docs/negocio.md) | **Laboratorio 4.** Los dos procesos como servicios con sus reglas, la transacción de cinco tablas, la frontera de DTOs, los dos patrones de diseño con la señal que los justificó, y lo que queda abierto. |
 | [Persistencia](docs/persistencia.md) | **Laboratorio 3.** El mapeo objeto-relacional, los repositorios con generalización, las consultas de negocio con su SQL generado, la evidencia del N+1 y lo que queda abierto. |
 | [Modelo de datos](docs/modelo-de-datos.md) | **Laboratorio 2.** El esquema relacional, su normalización, sus restricciones e índices justificados, y el subdominio de MongoDB con su justificación completa. |
@@ -349,10 +423,11 @@ sobre `main` y `master`. En una máquina limpia:
 
 1. Instala el proyecto y sus dependencias de desarrollo.
 2. Revisa el código con `ruff check` y `ruff format --check`.
-3. Corre las 189 pruebas rápidas midiendo la cobertura de la capa de negocio
+3. Corre las 407 pruebas rápidas midiendo la cobertura de la capa de negocio
    (`pytest -m "not integracion" --cov`), con umbral del 70 %: si baja de ahí, el paso falla.
-4. Corre las **14 pruebas de integración contra un PostgreSQL real**: Testcontainers levanta el
-   contenedor dentro del propio runner, así que no hace falta declarar ningún `services:`.
+4. Corre las **55 pruebas de integración contra un PostgreSQL real** con el esquema de Flyway:
+   Testcontainers levanta el contenedor dentro del propio runner, así que no hace falta declarar
+   ningún `services:`.
 5. **Levanta el servidor de verdad** con uvicorn y confirma que `/api/salud` responde.
 
 El estado se ve en la pestaña **Actions** del repositorio y en la insignia del inicio de este
@@ -375,10 +450,16 @@ contenido exacto de cada uno, así que lo pendiente queda listado sin asignarle 
       y corregido (201 consultas → 2) y 10 pruebas de integración contra PostgreSQL real con
       Testcontainers. Ver [Persistencia](docs/persistencia.md).
 
+- [x] **Laboratorio 4** *(entregado)* — La capa de negocio: los dos procesos del dominio como
+      servicios con reglas, la transacción de cinco tablas con su prueba de *rollback*, la frontera
+      de DTOs y los patrones de diseño. Ver [Capa de negocio](docs/negocio.md).
+- [x] **Laboratorio 5** *(esta entrega)* — API REST versionada (`/api/v1`) con Problem Details,
+      colecciones paginadas con *Specifications*, seguridad JWT con dos roles, OpenAPI y pruebas de
+      integración de los códigos de estado. Y la retroalimentación del Laboratorio 4, atendida
+      completa. Ver [API REST](docs/api.md).
+
 Pendiente para los laboratorios siguientes:
 
-- [ ] Que la validación del mapeo corra contra el esquema migrado por Flyway y no contra el que crea
-      el propio mapeo ([Persistencia §7](docs/persistencia.md#7--lo-que-queda-abierto))
-- [ ] Autenticación y roles: hoy el titular se identifica con un `usuario_id` en la petición
 - [ ] Frontend con avance de presupuesto en vivo
-- [ ] Proceso transaccional de ingesta y conciliación de comprobantes de correo
+- [ ] Enlazar los buzones con el proveedor (OAuth2) para que el sistema lea el correo solo: hoy el
+      comprobante entra ya leído por `POST /api/v1/comprobantes`
