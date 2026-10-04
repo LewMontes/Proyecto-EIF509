@@ -40,7 +40,8 @@ def _titular(sesion: Session, correo: str = "titular@gastonomo.cr") -> Usuario:
 def _comercio_y_compra(sesion: Session, usuario: Usuario, total: str = "10000") -> Compra:
     from app.data.models.comercio import Comercio
 
-    comercio = Comercio(nombre="Automercado", nombre_normalizado="automercado")
+    # El esquema exige el nombre normalizado en mayúsculas (`ck_comercio_nombre_normalizado_forma`).
+    comercio = Comercio(nombre="Automercado", nombre_normalizado="AUTOMERCADO")
     sesion.add(comercio)
     sesion.flush()
     compra = Compra(
@@ -48,6 +49,8 @@ def _comercio_y_compra(sesion: Session, usuario: Usuario, total: str = "10000") 
         comercio_id=comercio.id,
         fecha=date(2026, 9, 1),
         moneda=Moneda.CRC,
+        # `ck_compra_total_cuadra`: total = subtotal − descuento + impuesto.
+        subtotal=Decimal(total),
         total=Decimal(total),
         total_moneda_base=Decimal(total),
     )
@@ -106,6 +109,7 @@ def test_numeric_conserva_los_centimos_sin_error_de_punto_flotante(
     usuario = _titular(sesion_postgres)
     compra = _comercio_y_compra(sesion_postgres, usuario)
     compra.moneda = Moneda.USD
+    compra.subtotal = Decimal("19.99")
     compra.total = Decimal("19.99")
     compra.tipo_cambio_aplicado = Decimal("512.37")
     compra.total_moneda_base = Decimal("10242.28")
@@ -217,10 +221,9 @@ def test_el_mapeo_calza_con_el_esquema_que_hay_en_la_base(
     tabla. Esta prueba compara, tabla por tabla y columna por columna, lo que
     el mapeo declara contra lo que PostgreSQL de verdad tiene.
 
-    Hoy pasa porque el esquema lo crea el propio mapeo (`create_all`). El día
-    que las migraciones Flyway sean la única fuente del esquema -ver
-    docs/persistencia.md, sección 7- esta misma prueba es la que va a avisar
-    si el mapeo y las migraciones se separan.
+    El esquema contra el que compara es el de las migraciones de Flyway
+    (`V1`…`V8`), no uno que el propio mapeo haya creado: si el mapeo y las
+    migraciones se separan, esta es la prueba que avisa.
     """
     inspector = inspect(sesion_postgres.get_bind())
     tablas_reales = set(inspector.get_table_names())
@@ -244,16 +247,79 @@ def test_el_mapeo_calza_con_el_esquema_que_hay_en_la_base(
 def test_las_llaves_foraneas_del_mapeo_existen_en_la_base(
     sesion_postgres: Session,
 ) -> None:
-    """Las veintidós llaves foráneas del mapeo tienen su llave foránea de verdad detrás.
+    """Cada relación del mapeo tiene una llave foránea de verdad detrás.
 
     Una relación mapeada sin su `FOREIGN KEY` en la base "funciona" -SQLAlchemy
     hace el `JOIN` igual- pero deja de garantizar la integridad referencial:
     nada impediría una compra apuntando a un comercio que ya no existe.
+
+    No se comparan cantidades: el esquema de Flyway usa llaves **compuestas**
+    -`(categoria_id, usuario_id)` hacia `categoria (id, usuario_id)`- donde el
+    mapeo declara dos simples. Cada columna que el mapeo marca como llave
+    foránea tiene que estar respaldada en la base de una de dos formas:
+
+    - **directa**: una llave real desde esa columna hacia la misma tabla; o
+    - **transitiva**: la columna es parte de una llave compuesta. Es el caso
+      de `linea_compra.usuario_id`: no apunta a `usuario`, viaja en
+      `(compra_id, usuario_id)` hacia `compra (id, usuario_id)`, y es `compra`
+      la que apunta a `usuario`. La garantía es más fuerte, no más débil: el
+      renglón no solo tiene un titular que existe, tiene el **mismo** que su
+      compra.
     """
     inspector = inspect(sesion_postgres.get_bind())
-    total_reales = 0
-    for nombre in Base.metadata.tables:
-        total_reales += len(inspector.get_foreign_keys(nombre))
 
-    total_mapeadas = sum(len(tabla.foreign_keys) for tabla in Base.metadata.tables.values())
-    assert total_reales == total_mapeadas == 22
+    sin_respaldo: list[str] = []
+    for nombre, tabla in Base.metadata.tables.items():
+        llaves_reales = inspector.get_foreign_keys(nombre)
+        directas = {
+            (columna, llave["referred_table"])
+            for llave in llaves_reales
+            for columna in llave["constrained_columns"]
+        }
+        en_compuesta = {
+            columna
+            for llave in llaves_reales
+            if len(llave["constrained_columns"]) > 1
+            for columna in llave["constrained_columns"]
+        }
+        for llave in tabla.foreign_keys:
+            columna, destino = llave.parent.name, llave.column.table.name
+            if (columna, destino) not in directas and columna not in en_compuesta:
+                sin_respaldo.append(f"{nombre}.{columna} → {destino}")
+
+    assert not sin_respaldo, "Llaves foráneas del mapeo sin respaldo en la base:\n" + "\n".join(
+        sin_respaldo
+    )
+
+
+def test_los_tipos_enumerados_del_mapeo_son_los_de_las_migraciones(
+    sesion_postgres: Session,
+) -> None:
+    """Cada `Enum` del mapeo usa un tipo que existe en la base, con sus mismos valores.
+
+    Con `create_all()` esto no podía fallar: el mapeo creaba sus propios tipos.
+    Contra Flyway sí: un tipo mapeado con otro nombre -o un valor que la
+    migración no declara- revienta recién al insertar.
+    """
+    from sqlalchemy import Enum
+
+    reales = {
+        tipo["name"]: set(tipo["labels"])
+        for tipo in inspect(sesion_postgres.get_bind()).get_enums()
+    }
+
+    diferencias: list[str] = []
+    for tabla in Base.metadata.tables.values():
+        for columna in tabla.columns:
+            if not isinstance(columna.type, Enum):
+                continue
+            nombre, valores = columna.type.name, set(columna.type.enums)
+            if nombre not in reales:
+                diferencias.append(f"{tabla.name}.{columna.name}: no existe el tipo {nombre}")
+            elif not valores <= reales[nombre]:
+                diferencias.append(
+                    f"{tabla.name}.{columna.name}: {sorted(valores - reales[nombre])} "
+                    f"no están en el tipo {nombre}"
+                )
+
+    assert not diferencias, "\n".join(diferencias)

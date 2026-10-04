@@ -58,7 +58,8 @@ def _compra(
     estado: EstadoCompra = EstadoCompra.CONCILIADA,
     sufijo: str = "",
 ) -> Compra:
-    comercio = Comercio(nombre=f"Comercio{sufijo}", nombre_normalizado=f"comercio{sufijo}".lower())
+    # En mayúsculas: lo exige `ck_comercio_nombre_normalizado_forma`.
+    comercio = Comercio(nombre=f"Comercio{sufijo}", nombre_normalizado=f"COMERCIO{sufijo}".upper())
     sesion.add(comercio)
     sesion.flush()
     compra = Compra(
@@ -69,6 +70,8 @@ def _compra(
         moneda=moneda,
         estado=estado,
         tipo_cambio_aplicado=Decimal(tipo_cambio),
+        # `ck_compra_total_cuadra`: total = subtotal − descuento + impuesto.
+        subtotal=Decimal(monto),
         total=Decimal(monto),
         total_moneda_base=Decimal(monto) * Decimal(tipo_cambio),
     )
