@@ -12,7 +12,7 @@ en verde no vio, porque SQLite aceptaba felizmente un token más largo que su
 columna.
 
 **El esquema lo crean las migraciones de Flyway, no el mapeo.** La fixture
-aplica `V1` a `V8` sobre el contenedor, en orden, igual que lo haría
+aplica `V1` a `V9` sobre el contenedor, en orden, igual que lo haría
 `flyway migrate`. Hasta el Laboratorio 4 se usaba `Base.metadata.create_all()`,
 y eso hacía que estas pruebas validaran el mapeo contra un esquema que el
 propio mapeo había creado -por construcción, siempre coincidían-. Ahora corren
@@ -92,7 +92,7 @@ def aplicar_migraciones(motor: Engine) -> None:
 
 @pytest.fixture(scope="session")
 def motor_postgres() -> Iterator[Engine]:
-    """Un PostgreSQL 16 en Docker con el esquema de Flyway (`V1`…`V8`) aplicado.
+    """Un PostgreSQL 16 en Docker con el esquema de Flyway (`V1`…`V9`) aplicado.
 
     Se salta -no falla- si no hay un Docker con el que hablar: que alguien
     corra la suite sin Docker en su máquina no debería verse como un error del

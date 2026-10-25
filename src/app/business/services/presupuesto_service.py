@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from app.business.errors import (
     CategoriaNoEsHoja,
+    ConflictoDeConcurrencia,
     DatosInvalidos,
     PresupuestoYaExiste,
     RecursoNoEncontrado,
@@ -143,14 +144,32 @@ class PresupuestoService:
         return self._obtener_del_titular(usuario_id, presupuesto_id)
 
     def actualizar(
-        self, usuario_id: int, presupuesto_id: int, monto_limite: Decimal, umbral_alerta: int
+        self,
+        usuario_id: int,
+        presupuesto_id: int,
+        monto_limite: Decimal,
+        umbral_alerta: int,
+        version_esperada: int | None = None,
     ) -> Presupuesto:
         """Corrige el límite y el umbral de un presupuesto del titular.
 
         No cambia la categoría ni el período: eso sería otro presupuesto. Y no
         toca `monto_consumido`, que solo se mueve con las compras.
+
+        `version_esperada` es la versión que el cliente tenía cuando leyó el
+        presupuesto. Si ya no es la actual, alguien lo modificó en el medio -otra
+        pestaña, el celular, una compra que se concilió- y la corrección se
+        rechaza en vez de pisar un cambio que quien la pide nunca vio. La
+        carrera que queda entre esta lectura y el `commit` la cubre
+        `version_id_col` (ver `Presupuesto`).
         """
         presupuesto = self._obtener_del_titular(usuario_id, presupuesto_id)
+        if version_esperada is not None and version_esperada != presupuesto.version:
+            raise ConflictoDeConcurrencia(
+                f"El presupuesto {presupuesto_id} cambió mientras lo editabas (versión "
+                f"{version_esperada}, ahora {presupuesto.version}). Volvé a consultarlo y "
+                "aplicá tu corrección sobre lo actual."
+            )
         if monto_limite <= 0:
             raise DatosInvalidos("El límite del presupuesto debe ser mayor que cero.")
         if not (UMBRAL_MINIMO <= umbral_alerta <= UMBRAL_MAXIMO):

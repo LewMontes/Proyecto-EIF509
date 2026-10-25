@@ -212,6 +212,14 @@ class ActualizarPresupuestoRequest(BaseModel):
 
     monto_limite: Decimal = Field(gt=0, lt=Decimal(10**12))
     umbral_alerta: int = Field(ge=1, le=100)
+    version: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "La `version` del presupuesto tal como se leyó. Si ya cambió, responde `409` "
+            "en vez de pisar el cambio del otro."
+        ),
+    )
 
 
 class PresupuestoResponse(BaseModel):
@@ -228,6 +236,7 @@ class PresupuestoResponse(BaseModel):
     monto_limite: Decimal
     monto_consumido: Decimal
     umbral_alerta: int
+    version: int = Field(description="Sube con cada cambio. Se devuelve en el `PUT`.")
 
 
 # ---- reglas de categorización ----

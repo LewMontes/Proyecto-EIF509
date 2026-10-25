@@ -78,8 +78,13 @@ def actualizar(
     servicio: ServicioDePresupuestos,
     usuario: UsuarioActual,
 ) -> PresupuestoResponse:
+    """`409` si se manda la `version` leída y alguien cambió el presupuesto después."""
     presupuesto = servicio.actualizar(
-        usuario.id, presupuesto_id, peticion.monto_limite, peticion.umbral_alerta
+        usuario.id,
+        presupuesto_id,
+        peticion.monto_limite,
+        peticion.umbral_alerta,
+        version_esperada=peticion.version,
     )
     return PresupuestoResponse.model_validate(presupuesto)
 
