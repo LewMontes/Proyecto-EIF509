@@ -4,12 +4,23 @@ Una prueba por corrección, para que ninguna se pueda deshacer sin que el CI lo
 note. El hallazgo que justifica cada una está en AUDITORIA-SEGURIDAD.md.
 """
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.business.errors import DemasiadosIntentos
 from app.business.seguridad.intentos import LimitadorDeIntentos
-from app.config.settings import LARGO_MINIMO_JWT, _obtener_jwt_secreto
+from app.config.database import obtener_sesion
+from app.config.settings import (
+    LARGO_MINIMO_JWT,
+    _obtener_documentacion_publica,
+    _obtener_jwt_secreto,
+    _obtener_origenes_permitidos,
+    obtener_configuracion,
+)
+from app.main import crear_app
 
 CONTRASENA = "una-clave-larga"
 CORREO = "ana@gastonomo.cr"
@@ -126,6 +137,84 @@ def test_cors_solo_responde_a_los_origenes_configurados(cliente_anonimo: TestCli
     assert permitido.headers["access-control-allow-origin"] == "http://localhost:5173"
     assert "access-control-allow-origin" not in ajeno.headers
     assert "access-control-allow-credentials" not in permitido.headers, "la API no usa cookies"
+
+
+# Lámina 28, punto 5: en producción, CORS solo hacia el dominio de la SPA.
+
+
+def test_en_produccion_sin_origenes_configurados_no_entra_nadie(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GASTONOMO_ORIGENES_PERMITIDOS", raising=False)
+
+    assert _obtener_origenes_permitidos("produccion") == []
+
+
+def test_en_produccion_solo_entra_el_origen_configurado(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GASTONOMO_ORIGENES_PERMITIDOS", "https://gastonomo.example")
+
+    assert _obtener_origenes_permitidos("produccion") == ["https://gastonomo.example"]
+
+
+def test_en_produccion_un_comodin_impide_arrancar(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GASTONOMO_ORIGENES_PERMITIDOS", "https://gastonomo.example,*")
+
+    with pytest.raises(RuntimeError, match="GASTONOMO_ORIGENES_PERMITIDOS"):
+        _obtener_origenes_permitidos("produccion")
+
+
+def test_en_desarrollo_un_comodin_solo_avisa(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GASTONOMO_ORIGENES_PERMITIDOS", "*")
+
+    with pytest.warns(UserWarning, match="'\\*'"):
+        _obtener_origenes_permitidos("desarrollo")
+
+
+def test_en_desarrollo_siguen_los_localhost_de_siempre(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GASTONOMO_ORIGENES_PERMITIDOS", raising=False)
+
+    assert _obtener_origenes_permitidos("desarrollo") == [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
+
+
+# Lámina 6, A02: «Swagger expuesto sin control». En producción, cerrado.
+
+
+def _cliente_con_documentacion(sesion: Session, *, publica: bool) -> TestClient:
+    configuracion = replace(
+        obtener_configuracion(), entorno="produccion", documentacion_publica=publica
+    )
+    app = crear_app(configuracion)
+    app.dependency_overrides[obtener_sesion] = lambda: sesion
+    return TestClient(app)
+
+
+def test_en_produccion_la_documentacion_de_la_api_no_se_publica(sesion: Session) -> None:
+    cliente = _cliente_con_documentacion(sesion, publica=False)
+
+    for ruta in ("/docs", "/redoc", "/openapi.json"):
+        assert cliente.get(ruta).status_code == 404, ruta
+    assert cliente.get("/actuator/health").status_code == 200
+
+
+def test_la_documentacion_se_puede_abrir_a_proposito(sesion: Session) -> None:
+    cliente = _cliente_con_documentacion(sesion, publica=True)
+
+    assert cliente.get("/docs").status_code == 200
+    assert cliente.get("/openapi.json").status_code == 200
+
+
+def test_la_documentacion_va_cerrada_por_defecto_solo_en_produccion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GASTONOMO_DOCS_PUBLICAS", raising=False)
+    assert _obtener_documentacion_publica("produccion") is False
+    assert _obtener_documentacion_publica("desarrollo") is True
+
+    monkeypatch.setenv("GASTONOMO_DOCS_PUBLICAS", "true")
+    assert _obtener_documentacion_publica("produccion") is True
 
 
 # ---- A04 · secretos: en producción no se arranca sin una clave fuerte ----

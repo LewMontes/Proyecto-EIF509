@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.business.seguridad.intentos import LimitadorDeIntentos
 from app.config.database import crear_tablas, sembrar_administrador, sembrar_categorias_estandar
 from app.config.registros import configurar_registros
-from app.config.settings import obtener_configuracion
+from app.config.settings import Configuracion, obtener_configuracion
 from app.presentation.errores import (
     RESPUESTAS_DE_ERROR,
     documentar_errores_como_problem_details,
@@ -87,14 +87,22 @@ async def ciclo_de_vida(_: FastAPI):
     yield
 
 
-def crear_app() -> FastAPI:
+def crear_app(configuracion: Configuracion | None = None) -> FastAPI:
     """Fabrica de la aplicacion.
 
     Se usa una funcion en vez de un app global para poder crear instancias
-    limpias en las pruebas sin arrastrar configuracion de una a otra.
+    limpias en las pruebas sin arrastrar configuracion de una a otra. Sin
+    `configuracion` usa la del ambiente; una prueba puede pasar la suya -por
+    ejemplo, una de producción- sin pelear con el caché de
+    `obtener_configuracion()`.
     """
-    configuracion = obtener_configuracion()
+    configuracion = configuracion or obtener_configuracion()
     configurar_registros(configuracion.nivel_registro)
+
+    # Swagger UI, ReDoc y el contrato OpenAPI le dan a cualquiera el mapa
+    # completo de la API sin autenticarse (lámina 6, A02). En producción van
+    # cerrados -404- salvo que GASTONOMO_DOCS_PUBLICAS los abra a propósito.
+    documentacion = configuracion.documentacion_publica
 
     app = FastAPI(
         title=configuracion.nombre_aplicacion,
@@ -103,6 +111,9 @@ def crear_app() -> FastAPI:
         description=DESCRIPCION_DE_LA_API,
         openapi_tags=ETIQUETAS,
         lifespan=ciclo_de_vida,
+        docs_url="/docs" if documentacion else None,
+        redoc_url="/redoc" if documentacion else None,
+        openapi_url="/openapi.json" if documentacion else None,
         # Swagger UI recuerda el token entre recargas de la página: sin esto
         # hay que volver a pegarlo en «Authorize» cada vez.
         swagger_ui_parameters={"persistAuthorization": True},

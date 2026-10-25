@@ -25,6 +25,9 @@ ENTORNO_PRODUCCION = "produccion"
 # 32 caracteres de token_urlsafe son ~190 bits: fuera del alcance de una fuerza
 # bruta offline contra la firma HS256 de un token robado.
 LARGO_MINIMO_JWT = 32
+# Los puertos de Vite y de create-react-app: los frontends que cada integrante
+# levanta en su máquina. Solo valen como valor por defecto en desarrollo.
+ORIGENES_DE_DESARROLLO = "http://localhost:5173,http://localhost:3000"
 
 
 @dataclass(frozen=True)
@@ -117,6 +120,10 @@ class Configuracion:
     # Nivel mínimo de los registros JSON que salen por stdout.
     nivel_registro: str = "INFO"
 
+    # Si Swagger UI, ReDoc y `/openapi.json` se publican. Abiertos en
+    # desarrollo y cerrados en producción -ver `_obtener_documentacion_publica`.
+    documentacion_publica: bool = True
+
     @property
     def es_produccion(self) -> bool:
         return self.entorno == ENTORNO_PRODUCCION
@@ -164,7 +171,7 @@ def obtener_configuracion() -> Configuracion:
             "http://localhost:5173/iniciar-sesion/google/callback",
         ),
         clave_cifrado_tokens=_obtener_clave_cifrado_tokens(),
-        origenes_permitidos=_obtener_origenes_permitidos(),
+        origenes_permitidos=_obtener_origenes_permitidos(entorno),
         bccr_correo=os.getenv("GASTONOMO_BCCR_CORREO", ""),
         bccr_token=os.getenv("GASTONOMO_BCCR_TOKEN", ""),
         mongo_url=os.getenv(
@@ -177,6 +184,7 @@ def obtener_configuracion() -> Configuracion:
         admin_contrasena=os.getenv("GASTONOMO_ADMIN_CONTRASENA", ""),
         entorno=entorno,
         nivel_registro=os.getenv("GASTONOMO_NIVEL_REGISTRO", "INFO"),
+        documentacion_publica=_obtener_documentacion_publica(entorno),
     )
 
 
@@ -212,18 +220,54 @@ def _obtener_jwt_secreto(entorno: str = "desarrollo") -> str:
     return secrets.token_urlsafe(48)
 
 
-def _obtener_origenes_permitidos() -> list[str]:
+def _obtener_origenes_permitidos(entorno: str = "desarrollo") -> list[str]:
     """Lee los orígenes permitidos para CORS, separados por coma.
 
     El redirect_uri de OAuth apunta al frontend a propósito (ver
     `microsoft_redirect_uri`): es el frontend el que recibe al titular de
     vuelta y llama a esta API por `fetch` para completar la vinculación. Sin
     CORS habilitado hacia ese origen, el navegador bloquearía esa llamada.
+
+    **En produccion, sin la variable, la lista queda vacía.** Los `localhost`
+    de desarrollo ahí no son una comodidad: dejan que cualquier página que el
+    visitante abra en su propia máquina en ese puerto llame a la API con su
+    token. Mismo criterio que la clave JWT: si falta la configuración, se
+    falla cerrado -ningún navegador ajeno entra- hasta que se defina el
+    dominio de la SPA (lámina 28, punto 5).
+
+    Un `*` se rechaza en cualquier entorno: en producción la app no arranca, y
+    en desarrollo se avisa por warning.
     """
-    origenes = os.getenv(
-        "GASTONOMO_ORIGENES_PERMITIDOS", "http://localhost:5173,http://localhost:3000"
-    )
-    return [origen.strip() for origen in origenes.split(",") if origen.strip()]
+    por_defecto = "" if entorno == ENTORNO_PRODUCCION else ORIGENES_DE_DESARROLLO
+    texto = os.getenv("GASTONOMO_ORIGENES_PERMITIDOS", por_defecto)
+    origenes = [origen.strip() for origen in texto.split(",") if origen.strip()]
+    if "*" in origenes:
+        mensaje = (
+            "GASTONOMO_ORIGENES_PERMITIDOS no puede contener '*': cualquier página "
+            "podría llamar a la API. Poné el dominio exacto de la SPA (https://..., "
+            "sin '/' final)."
+        )
+        if entorno == ENTORNO_PRODUCCION:
+            raise RuntimeError(mensaje)
+        warnings.warn(mensaje, stacklevel=2)
+    return origenes
+
+
+def _obtener_documentacion_publica(entorno: str = "desarrollo") -> bool:
+    """Decide si se publican Swagger UI, ReDoc y el contrato OpenAPI.
+
+    Le dan a cualquiera, sin autenticarse, el mapa completo de la API: rutas,
+    parámetros, esquemas y códigos de error. No es una vulnerabilidad por sí
+    solo, pero le ahorra el reconocimiento a un atacante (lámina 6, A02:
+    «Swagger expuesto sin control»).
+
+    Por defecto, abiertos en desarrollo y cerrados en producción.
+    `GASTONOMO_DOCS_PUBLICAS=true` los vuelve a abrir a propósito -por
+    ejemplo, para la defensa- sin tocar código; cualquier otro valor que no
+    sea `true` los cierra.
+    """
+    por_defecto = "false" if entorno == ENTORNO_PRODUCCION else "true"
+    return os.getenv("GASTONOMO_DOCS_PUBLICAS", por_defecto).strip().lower() == "true"
 
 
 def _obtener_clave_cifrado_tokens() -> str:

@@ -477,8 +477,11 @@ GitHub y en la plataforma.
 | `URL_PRODUCCION` | *Variable* | La URL pública de la API, para el chequeo de salud posterior al despliegue |
 
 **En la plataforma**, como variables de entorno del servicio: `GASTONOMO_URL_BASE_DATOS` (la del
-PostgreSQL administrado, `postgresql+psycopg://…`), `GASTONOMO_JWT_SECRETO` (≥ 32 caracteres) y
-`GASTONOMO_ORIGENES_PERMITIDOS`. El despliegue automático propio de la plataforma va **apagado**:
+PostgreSQL administrado, `postgresql+psycopg://…`), `GASTONOMO_JWT_SECRETO` (≥ 32 caracteres),
+`GASTONOMO_ORIGENES_PERMITIDOS` (el dominio exacto de la SPA; sin ella, en producción ningún origen
+entra) y `GASTONOMO_DOCS_PUBLICAS`, que en producción va cerrada por defecto: `/docs`, `/redoc` y
+`/openapi.json` responden 404 salvo que se defina en `true` a propósito, por ejemplo para la
+defensa. El despliegue automático propio de la plataforma va **apagado**:
 el único que despliega es el pipeline, después de verificar. La ruta de *health check* del servicio
 es `/actuator/health`.
 
