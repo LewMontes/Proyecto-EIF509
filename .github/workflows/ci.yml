@@ -156,9 +156,11 @@ jobs:                         # Dos trabajos: "verificar" y, solo si pasa, "desp
           echo "La plataforma recibió el pedido de despliegue de ${GITHUB_SHA::7}."
 
       # Paso 2: esperar a que la versión nueva quede sana
-      #   La plataforma tarda en construir la imagen. Se le pregunta a
-      #   /actuator/health hasta 10 minutos; si nunca responde UP, el
-      #   despliegue queda en rojo en la pestaña Actions.
+      #   La plataforma tarda en construir la imagen (el primer build, más;
+      #   y en el plan gratis el servicio además tiene que despertar). Se le
+      #   pregunta a /actuator/health hasta 15 minutos, mostrando el código
+      #   HTTP de cada intento para que un fallo se pueda diagnosticar desde
+      #   este log. Si nunca responde UP, el despliegue queda en rojo.
       - name: Esperar a que producción responda /actuator/health
         env:
           URL_PRODUCCION: ${{ vars.URL_PRODUCCION }}
@@ -167,14 +169,19 @@ jobs:                         # Dos trabajos: "verificar" y, solo si pasa, "desp
             echo "::warning::Sin la variable URL_PRODUCCION no se puede verificar el despliegue."
             exit 0
           fi
+          # Sin la barra final: "https://x.onrender.com/" + "/actuator/health"
+          # da una doble barra, y la plataforma responde 404.
+          SALUD="${URL_PRODUCCION%/}/actuator/health"
+          echo "Consultando $SALUD"
           sleep 60
-          for intento in $(seq 1 36); do
-            if curl --silent --fail --max-time 10 "$URL_PRODUCCION/actuator/health"; then
-              echo ""
+          for intento in $(seq 1 56); do
+            codigo=$(curl --silent --output respuesta.txt --write-out "%{http_code}" --max-time 15 "$SALUD" || true)
+            echo "Intento $intento: HTTP $codigo $(head -c 100 respuesta.txt 2>/dev/null)"
+            if [ "$codigo" = "200" ] && grep -q '"UP"' respuesta.txt; then
               echo "Producción respondió UP."
               exit 0
             fi
             sleep 15
           done
-          echo "::error::Producción no respondió UP en 10 minutos."
+          echo "::error::Producción no respondió UP en 15 minutos. Revisá los registros del servicio en la plataforma."
           exit 1
