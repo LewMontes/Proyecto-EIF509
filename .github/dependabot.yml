@@ -1,0 +1,41 @@
+# ============================================================
+#  Dependabot: vigila las dependencias entre un push y otro
+#  Qué hace: una vez por semana, GitHub revisa si salió una
+#  versión nueva -o un CVE- de lo que usa el proyecto y abre un
+#  pull request con la actualización. Ese PR pasa por el mismo
+#  pipeline que cualquier otro cambio antes de poder fusionarse.
+#
+#  Por qué, si ya está pip-audit en el CI: pip-audit revisa solo
+#  cuando alguien empuja. Si sale un CVE un martes y nadie empuja
+#  hasta dentro de un mes, nadie se entera. Dependabot es la
+#  alerta entre cambios; pip-audit, el control en el pipeline
+#  (lámina 28, punto 8; OWASP A03:2025, cadena de suministro).
+#
+#  Las alertas de seguridad se activan aparte, en el navegador:
+#  Settings > Code security > Dependabot alerts y
+#  Dependabot security updates.
+# ============================================================
+
+version: 2
+
+updates:
+
+  # Las dependencias de Python. Dependabot lee pyproject.toml en la raíz.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    # Que no se acumulen más PR de los que se alcanzan a revisar en una semana.
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "Dependencias"
+
+  # Las acciones del workflow (actions/checkout@v4, actions/setup-python@v5...).
+  # Están fijadas por versión mayor: sin esto, nadie se entera cuando sale la
+  # siguiente ni cuando una deja de tener soporte.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "Pipeline"
