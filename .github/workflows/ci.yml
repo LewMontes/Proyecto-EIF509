@@ -32,7 +32,7 @@ jobs:                         # Dos trabajos: "verificar" y, solo si pasa, "desp
 
       # Paso 1: descargar tu código al servidor de GitHub
       - name: Descargar el código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Paso 2: instalar Python 3.14 (la misma versión que usamos localmente)
       - name: Configurar Python 3.14
