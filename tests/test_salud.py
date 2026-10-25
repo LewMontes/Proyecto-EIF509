@@ -27,7 +27,10 @@ def test_la_documentacion_openapi_se_genera():
 
 
 def test_todo_el_contrato_de_negocio_vive_bajo_la_version():
-    """Salvo el endpoint de salud, ninguna ruta queda fuera de `/api/v1`."""
+    """Salvo los dos endpoints de salud, ninguna ruta queda fuera de `/api/v1`."""
     rutas = cliente_simple.get("/openapi.json").json()["paths"]
 
-    assert [ruta for ruta in rutas if not ruta.startswith("/api/v1/")] == ["/api/salud"]
+    assert [ruta for ruta in rutas if not ruta.startswith("/api/v1/")] == [
+        "/api/salud",
+        "/actuator/health",
+    ]
