@@ -21,6 +21,11 @@ from dotenv import load_dotenv
 # reales las pone el workflow.
 load_dotenv()
 
+ENTORNO_PRODUCCION = "produccion"
+# 32 caracteres de token_urlsafe son ~190 bits: fuera del alcance de una fuerza
+# bruta offline contra la firma HS256 de un token robado.
+LARGO_MINIMO_JWT = 32
+
 
 @dataclass(frozen=True)
 class Configuracion:
@@ -75,15 +80,6 @@ class Configuracion:
     bccr_correo: str
     bccr_token: str
 
-    # Usuario de prueba que `sembrar_usuario_de_demostracion()` crea en una
-    # base recién creada -no una cuenta real. Vive acá y no como constante en
-    # `database.py` para que la contraseña de verdad quede en `.env`
-    # (gitignorado) y no en un archivo que se sube al repositorio; los
-    # valores por defecto (`demo@gastonomo.cr`/`demo1234`) solo importan para
-    # una base nueva sin `.env` -CI, un clon recién hecho- y no son secretos.
-    demo_correo: str
-    demo_contrasena: str
-
     # Mongo del subdominio documental (bitácora de trazabilidad de compras).
     # Con default, a diferencia de las credenciales de OAuth: el `mongo` de
     # `docker compose up -d` ya trae usuario/clave fijos para desarrollo, así
@@ -114,6 +110,17 @@ class Configuracion:
     admin_correo: str = ""
     admin_contrasena: str = ""
 
+    # "desarrollo" o "produccion". En producción la configuración insegura no
+    # se tolera con un warning: la app no arranca (ver `_obtener_jwt_secreto`).
+    entorno: str = "desarrollo"
+
+    # Nivel mínimo de los registros JSON que salen por stdout.
+    nivel_registro: str = "INFO"
+
+    @property
+    def es_produccion(self) -> bool:
+        return self.entorno == ENTORNO_PRODUCCION
+
 
 @lru_cache
 def obtener_configuracion() -> Configuracion:
@@ -134,6 +141,7 @@ def obtener_configuracion() -> Configuracion:
     y ponerlas en su `.env`. Sin ellas, todo el resto del sistema sigue
     funcionando; solo fallan los endpoints de vinculacion de correo.
     """
+    entorno = os.getenv("GASTONOMO_ENTORNO", "desarrollo").strip().lower()
     return Configuracion(
         nombre_aplicacion=os.getenv("GASTONOMO_NOMBRE", "Gastonomo"),
         version=os.getenv("GASTONOMO_VERSION", "0.1.0"),
@@ -159,28 +167,40 @@ def obtener_configuracion() -> Configuracion:
         origenes_permitidos=_obtener_origenes_permitidos(),
         bccr_correo=os.getenv("GASTONOMO_BCCR_CORREO", ""),
         bccr_token=os.getenv("GASTONOMO_BCCR_TOKEN", ""),
-        demo_correo=os.getenv("GASTONOMO_DEMO_CORREO", "demo@gastonomo.cr"),
-        demo_contrasena=os.getenv("GASTONOMO_DEMO_CONTRASENA", "demo1234"),
         mongo_url=os.getenv(
             "GASTONOMO_MONGO_URL", "mongodb://gastonomo:gastonomo_local@localhost:27017"
         ),
         mongo_db=os.getenv("GASTONOMO_MONGO_DB", "gastonomo_app"),
-        jwt_secreto=_obtener_jwt_secreto(),
+        jwt_secreto=_obtener_jwt_secreto(entorno),
         jwt_minutos=int(os.getenv("GASTONOMO_JWT_MINUTOS", "60")),
         admin_correo=os.getenv("GASTONOMO_ADMIN_CORREO", ""),
         admin_contrasena=os.getenv("GASTONOMO_ADMIN_CONTRASENA", ""),
+        entorno=entorno,
+        nivel_registro=os.getenv("GASTONOMO_NIVEL_REGISTRO", "INFO"),
     )
 
 
-def _obtener_jwt_secreto() -> str:
+def _obtener_jwt_secreto(entorno: str = "desarrollo") -> str:
     """Lee la clave de firma de los JWT, o genera una efimera para desarrollo.
 
     Mismo criterio que la clave de cifrado de tokens de abajo: una clave
     generada al vuelo deja levantar el proyecto la primera vez, pero cambia en
     cada arranque -todos los tokens emitidos antes dejan de valer-, asi que se
     avisa por warning en vez de fallar.
+
+    **En produccion, falla.** Ahí una clave efímera no es una comodidad sino
+    un defecto silencioso -cada reinicio de la plataforma desloguea a todos-,
+    y una clave corta se puede adivinar por fuerza bruta offline a partir de
+    cualquier token emitido. La app no arranca hasta que la clave exista y
+    tenga al menos 32 caracteres (OWASP A02/A04:2025).
     """
     secreto = os.getenv("GASTONOMO_JWT_SECRETO")
+    if entorno == ENTORNO_PRODUCCION and (not secreto or len(secreto) < LARGO_MINIMO_JWT):
+        raise RuntimeError(
+            "GASTONOMO_ENTORNO=produccion exige GASTONOMO_JWT_SECRETO con al menos "
+            f"{LARGO_MINIMO_JWT} caracteres. Generala con: "
+            'python -c "import secrets; print(secrets.token_urlsafe(48))"'
+        )
     if secreto:
         return secreto
     warnings.warn(
@@ -200,7 +220,9 @@ def _obtener_origenes_permitidos() -> list[str]:
     vuelta y llama a esta API por `fetch` para completar la vinculación. Sin
     CORS habilitado hacia ese origen, el navegador bloquearía esa llamada.
     """
-    origenes = os.getenv("GASTONOMO_ORIGENES_PERMITIDOS", "http://localhost:5173")
+    origenes = os.getenv(
+        "GASTONOMO_ORIGENES_PERMITIDOS", "http://localhost:5173,http://localhost:3000"
+    )
     return [origen.strip() for origen in origenes.split(",") if origen.strip()]
 
 

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from app.business.errors import CredencialesInvalidas, NoAutenticado
 from app.business.seguridad.contrasenas import verificar_contrasena
+from app.business.seguridad.intentos import LimitadorDeIntentos
 from app.business.seguridad.tokens import emitir_token, leer_token
 from app.data.models.enums import RolUsuario
 from app.data.repositories.usuario_repository import UsuarioRepository
@@ -54,11 +55,16 @@ class AuthService:
     """Aplica las reglas de autenticación."""
 
     def __init__(
-        self, usuario_repository: UsuarioRepository, jwt_secreto: str, jwt_minutos: int
+        self,
+        usuario_repository: UsuarioRepository,
+        jwt_secreto: str,
+        jwt_minutos: int,
+        limitador: LimitadorDeIntentos | None = None,
     ) -> None:
         self.usuarios = usuario_repository
         self._secreto = jwt_secreto
         self._minutos = jwt_minutos
+        self._limitador = limitador
 
     def iniciar_sesion(self, comando: IniciarSesionComando) -> SesionIniciada:
         """Verifica correo y contraseña y emite el token de acceso.
@@ -67,16 +73,28 @@ class AuthService:
         existe, una contraseña equivocada, una cuenta sin contraseña propia y
         una cuenta desactivada: distinguirlos le confirmaría a quien prueba
         correos cuáles sí tienen cuenta.
+
+        Con `limitador`, cada fallo se cuenta contra el correo y, pasado el
+        máximo, se rechaza con `DemasiadosIntentos` **antes** de mirar la
+        contraseña. Se cuenta igual un correo que no existe: si no, el bloqueo
+        delataría cuáles sí tienen cuenta.
         """
-        usuario = self.usuarios.buscar_por_correo(comando.correo.strip().lower())
+        correo = comando.correo.strip().lower()
+        if self._limitador is not None:
+            self._limitador.verificar(correo)
+        usuario = self.usuarios.buscar_por_correo(correo)
         if (
             usuario is None
             or not usuario.activo
             or usuario.contrasena_hash is None
             or not verificar_contrasena(comando.contrasena, usuario.contrasena_hash)
         ):
+            if self._limitador is not None:
+                self._limitador.registrar_fallo(correo)
             raise CredencialesInvalidas("Correo o contraseña incorrectos.")
 
+        if self._limitador is not None:
+            self._limitador.reiniciar(correo)
         token = emitir_token(usuario.id, usuario.rol, self._secreto, self._minutos)
         return SesionIniciada(
             access_token=token.access_token,

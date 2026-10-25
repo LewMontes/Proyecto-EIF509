@@ -8,14 +8,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.business.seguridad.intentos import LimitadorDeIntentos
 from app.config.database import crear_tablas, sembrar_administrador, sembrar_categorias_estandar
+from app.config.registros import configurar_registros
 from app.config.settings import obtener_configuracion
 from app.presentation.errores import (
     RESPUESTAS_DE_ERROR,
     documentar_errores_como_problem_details,
     registrar_manejadores_de_error,
 )
+from app.presentation.middleware import CabecerasDeSeguridad, RegistroDePeticiones
 from app.presentation.routers import (
+    actuator,
     auth,
     categorias,
     comercios,
@@ -90,6 +94,7 @@ def crear_app() -> FastAPI:
     limpias en las pruebas sin arrastrar configuracion de una a otra.
     """
     configuracion = obtener_configuracion()
+    configurar_registros(configuracion.nivel_registro)
 
     app = FastAPI(
         title=configuracion.nombre_aplicacion,
@@ -103,16 +108,28 @@ def crear_app() -> FastAPI:
         swagger_ui_parameters={"persistAuthorization": True},
     )
 
-    # El frontend React correra en otro puerto durante el desarrollo.
+    # Los fallos de login que cuenta `AuthService`. Vive en la app y no en la
+    # petición: el conteo tiene que sobrevivir de un intento al siguiente.
+    app.state.limitador_de_intentos = LimitadorDeIntentos()
+
+    # El orden importa: el último que se agrega es el más externo. El registro
+    # de peticiones envuelve a todo, así mide también lo que agregan los demás.
+    app.add_middleware(CabecerasDeSeguridad)
+    # CORS solo hacia los orígenes del ambiente (GASTONOMO_ORIGENES_PERMITIDOS),
+    # sin credenciales -la API se autentica con `Authorization: Bearer`, no con
+    # cookies- y solo con los métodos y encabezados que el contrato usa.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://localhost:3000"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=configuracion.origenes_permitidos,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+        expose_headers=["Location", "Retry-After", "X-Request-ID"],
     )
+    app.add_middleware(RegistroDePeticiones)
 
     app.include_router(salud.router)
+    app.include_router(actuator.router)
     # Todo lo que vive bajo /api/v1 declara, además de su respuesta exitosa, los
     # errores que puede devolver: así quedan en el contrato OpenAPI con su forma
     # real (Problem Details) y no con la que FastAPI documenta por defecto.

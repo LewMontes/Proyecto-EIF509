@@ -182,3 +182,29 @@ class TransicionDeComprobanteInvalida(ReglaDeNegocioViolada):
 
 class CompraYaAnulada(ReglaDeNegocioViolada):
     """Una compra anulada no se corrige ni se anula de nuevo."""
+
+
+class ConflictoDeConcurrencia(ReglaDeNegocioViolada):
+    """Otro cambio llegó primero al mismo dato: se rechaza en vez de pisarlo.
+
+    Es el bloqueo optimista visto desde el dominio. Lo lanza el servicio cuando
+    el cliente trae una versión vieja, y es también el `codigo` con el que el
+    manejador global responde al `StaleDataError` de SQLAlchemy -la misma
+    colisión detectada al escribir-, así el cliente ve un solo tipo de conflicto.
+    """
+
+
+# ---- límites de uso ----
+
+
+class DemasiadosIntentos(ErrorDeNegocio):
+    """Se superó el número de intentos permitidos en la ventana de tiempo.
+
+    Es su propia familia y no un `NoAutenticado`: no dice nada sobre si las
+    credenciales eran buenas, solo que hay que esperar. `segundos_de_espera`
+    viaja en el encabezado `Retry-After`.
+    """
+
+    def __init__(self, mensaje: str, segundos_de_espera: int) -> None:
+        super().__init__(mensaje)
+        self.segundos_de_espera = segundos_de_espera

@@ -46,8 +46,6 @@ def _configuracion(
         origenes_permitidos=[],
         bccr_correo=correo,
         bccr_token=token,
-        demo_correo="",
-        demo_contrasena="",
     )
 
 
