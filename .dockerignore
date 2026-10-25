@@ -1,0 +1,19 @@
+# Lo que no entra en la imagen de la API. Menos archivos, build más rápido, y
+# nada que no deba viajar: credenciales, historial de git, bases locales.
+.venv
+__pycache__
+*.pyc
+*.sqlite3
+.coverage
+htmlcov
+tests
+.pytest_cache
+.ruff_cache
+.git
+.github
+docs
+db
+articulo
+.env
+.env.*
+!.env.ejemplo

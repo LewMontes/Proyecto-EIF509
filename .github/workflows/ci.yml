@@ -1,9 +1,10 @@
 # ============================================================
-#  Integración Continua (CI) con GitHub Actions
+#  Integración y despliegue continuos (CI/CD) con GitHub Actions
 #  Qué hace: cada vez que hacés "push", GitHub instala las
-#  dependencias, revisa el estilo del código y corre las
-#  pruebas automáticamente, en un servidor limpio.
-#  Si algo se rompe, te avisa.
+#  dependencias, revisa el estilo del código, audita las
+#  dependencias, corre las pruebas y construye la imagen, en un
+#  servidor limpio. Si todo pasa y el push fue a master/main,
+#  despliega. Si algo se rompe, te avisa y NO despliega.
 # ============================================================
 
 name: CI                      # Nombre que verás en la pestaña "Actions" de GitHub
@@ -14,8 +15,17 @@ on:                           # ¿CUÁNDO se ejecuta este workflow?
   pull_request:               #   - y cuando abrís un pull request
     branches: [ main, master ]
 
-jobs:                         # Un workflow tiene uno o más "jobs" (trabajos)
-  build:                      # Nuestro job se llama "build"
+# El token que GitHub le presta al workflow solo puede leer el repositorio.
+# Nada en este archivo necesita escribir en él (OWASP A08:2025).
+permissions:
+  contents: read
+
+jobs:                         # Dos trabajos: "verificar" y, solo si pasa, "desplegar"
+
+  # ==========================================================
+  #  Trabajo 1 · verificar: corre en cada push y en cada PR
+  # ==========================================================
+  verificar:
     runs-on: ubuntu-latest    # Se ejecuta en una máquina Linux limpia que GitHub presta
 
     steps:                    # Los pasos que ejecuta, en orden:
@@ -33,7 +43,7 @@ jobs:                         # Un workflow tiene uno o más "jobs" (trabajos)
 
       # Paso 3: instalar el proyecto y sus dependencias de desarrollo
       #   El "-e ." instala el paquete en modo editable; "[dev]" agrega
-      #   pytest, httpx y ruff (definidos en pyproject.toml).
+      #   pytest, ruff, testcontainers y pip-audit (ver pyproject.toml).
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
@@ -47,7 +57,15 @@ jobs:                         # Un workflow tiene uno o más "jobs" (trabajos)
           ruff check .
           ruff format --check .
 
-      # Paso 5: correr las pruebas, midiendo la cobertura de la capa de negocio
+      # Paso 5: auditar las dependencias (OWASP A03:2025, cadena de suministro)
+      #   pip-audit compara cada paquete instalado contra las bases de
+      #   vulnerabilidades conocidas. Si alguno tiene un CVE publicado, el paso
+      #   falla y no se despliega. "--skip-editable" salta el propio proyecto,
+      #   que no está publicado en PyPI.
+      - name: Auditar las dependencias (pip-audit)
+        run: pip-audit --skip-editable --progress-spinner off
+
+      # Paso 6: correr las pruebas, midiendo la cobertura de la capa de negocio
       #   Si algo falla, el workflow se marca en ROJO. Si todo pasa, en VERDE.
       #   "-m 'not integracion'": las pruebas de integración van aparte, en el
       #   paso siguiente, porque tardan más (levantan un contenedor).
@@ -55,40 +73,108 @@ jobs:                         # Un workflow tiene uno o más "jobs" (trabajos)
       #   "--cov" mide solo src/app/business -ver [tool.coverage.run] en
       #   pyproject.toml- y el umbral de 70% vive en [tool.coverage.report]
       #   (fail_under). Si la cobertura baja de ahí, este paso falla igual que
-      #   si se rompiera una prueba: el reporte no es informativo, es una
-      #   condición de la entrega.
+      #   si se rompiera una prueba: es el equivalente del "jacoco check".
       - name: Correr las pruebas (con cobertura de la capa de negocio)
         run: pytest -v -m "not integracion" --cov --cov-report=term-missing
 
-      # Paso 5b: las pruebas de integración contra un PostgreSQL de verdad
-      #   Testcontainers levanta un postgres:16-alpine en Docker, corre las
-      #   pruebas contra él y lo apaga. El runner de GitHub Actions ya trae
-      #   Docker instalado y corriendo, así que no hace falta ningún servicio
-      #   declarado en el workflow: el contenedor lo administra la prueba.
+      # Paso 7: las pruebas de integración contra un PostgreSQL de verdad
+      #   Testcontainers levanta un postgres:16-alpine en Docker, le aplica
+      #   las migraciones de Flyway (V1..V9), corre las pruebas y lo apaga. El
+      #   runner ya trae Docker, así que no hace falta declarar "services:".
       #
-      #   Estas son las que verifican lo que SQLite no puede: NUMERIC exacto,
-      #   ON DELETE CASCADE, el largo de los VARCHAR, el ROLLBACK real y que
-      #   el mapeo calce con el esquema (ver docs/persistencia.md).
+      #   Acá corren, entre otras, la prueba de rollback de la conciliación y
+      #   la del bloqueo optimista con dos transacciones reales.
       #
       #   "--strict-markers" para que un marcador mal escrito falle acá en vez
       #   de saltarse las pruebas en silencio.
       - name: Correr las pruebas de integración (PostgreSQL con Testcontainers)
         run: pytest -v --strict-markers -m integracion
 
-      # Paso 6: verificar que la aplicación de verdad levanta
-      #   Los tests usan un cliente en memoria; esto arranca el servidor real
-      #   con uvicorn y le pega al endpoint de salud, que es la prueba de que
-      #   el proyecto "compila y levanta sin errores".
-      - name: Verificar que la aplicación arranca
+      # Paso 8: construir la imagen que se va a desplegar
+      #   Si el Dockerfile se rompe, se sabe acá y no en la plataforma.
+      - name: Construir la imagen Docker
+        run: docker build -t gastonomo:${{ github.sha }} .
+
+      # Paso 9: arrancar ESA imagen y preguntarle si está sana
+      #   Es la prueba de que el artefacto que se despliega levanta: con
+      #   GASTONOMO_ENTORNO=produccion (lo trae la imagen), así que también
+      #   verifica que arranca con una clave JWT de verdad. La clave es de un
+      #   solo uso, generada acá: no es un secreto del proyecto.
+      - name: Verificar que la imagen arranca y responde /actuator/health
         run: |
-          uvicorn app.main:app --app-dir src --port 8000 &
-          for intento in $(seq 1 15); do
-            if curl --silent --fail http://127.0.0.1:8000/api/salud; then
+          docker run -d --name gastonomo-ci -p 8000:8000 \
+            -e GASTONOMO_JWT_SECRETO="$(openssl rand -hex 32)" \
+            -e GASTONOMO_URL_BASE_DATOS="sqlite:////tmp/gastonomo.sqlite3" \
+            gastonomo:${{ github.sha }}
+          for intento in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:8000/actuator/health; then
               echo ""
-              echo "La aplicación respondió correctamente."
+              echo "La imagen respondió UP."
+              docker logs gastonomo-ci | tail -n 5
               exit 0
             fi
             sleep 1
           done
-          echo "La aplicación no respondió a tiempo."
+          echo "La imagen no respondió a tiempo. Sus registros:"
+          docker logs gastonomo-ci
+          exit 1
+
+  # ==========================================================
+  #  Trabajo 2 · desplegar: solo desde master/main, solo si
+  #  "verificar" pasó entero, y nunca desde un pull request
+  # ==========================================================
+  desplegar:
+    needs: verificar          # Si "verificar" falla, este trabajo ni arranca
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    # El environment "produccion" de GitHub guarda los secretos del despliegue
+    # y deja el historial de cada despliegue en la pestaña "Environments".
+    environment:
+      name: produccion
+      url: ${{ vars.URL_PRODUCCION }}
+    # Dos push seguidos no despliegan a la vez: el segundo espera al primero.
+    concurrency:
+      group: despliegue-produccion
+      cancel-in-progress: false
+
+    steps:
+      # Paso 1: pedirle a la plataforma que construya y publique master
+      #   La URL del deploy hook es un secreto -quien la tenga puede forzar
+      #   despliegues- y vive en GitHub Secrets, nunca en este archivo. GitHub
+      #   la enmascara si llegara a aparecer en el log.
+      - name: Disparar el despliegue en la plataforma
+        env:
+          DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$DEPLOY_HOOK_URL" ]; then
+            echo "::error::Falta el secreto DEPLOY_HOOK_URL en Settings > Environments > produccion."
+            exit 1
+          fi
+          curl --silent --show-error --fail --max-time 30 -X POST "$DEPLOY_HOOK_URL" > /dev/null
+          echo "La plataforma recibió el pedido de despliegue de ${GITHUB_SHA::7}."
+
+      # Paso 2: esperar a que la versión nueva quede sana
+      #   La plataforma tarda en construir la imagen. Se le pregunta a
+      #   /actuator/health hasta 10 minutos; si nunca responde UP, el
+      #   despliegue queda en rojo en la pestaña Actions.
+      - name: Esperar a que producción responda /actuator/health
+        env:
+          URL_PRODUCCION: ${{ vars.URL_PRODUCCION }}
+        run: |
+          if [ -z "$URL_PRODUCCION" ]; then
+            echo "::warning::Sin la variable URL_PRODUCCION no se puede verificar el despliegue."
+            exit 0
+          fi
+          sleep 60
+          for intento in $(seq 1 36); do
+            if curl --silent --fail --max-time 10 "$URL_PRODUCCION/actuator/health"; then
+              echo ""
+              echo "Producción respondió UP."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::Producción no respondió UP en 10 minutos."
           exit 1
