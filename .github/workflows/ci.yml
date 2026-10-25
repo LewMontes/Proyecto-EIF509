@@ -36,7 +36,7 @@ jobs:                         # Dos trabajos: "verificar" y, solo si pasa, "desp
 
       # Paso 2: instalar Python 3.14 (la misma versión que usamos localmente)
       - name: Configurar Python 3.14
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
           cache: pip          # Guarda dependencias para que la próxima vez sea más rápido
