@@ -12,7 +12,7 @@ Universidad Nacional · Escuela de Informática y Computación
 |---|---------------------------------------------------------|
 | **Integrantes** | Jose Alexis Solís Carvajal · 1-1623-0238          |
 |  |    Luis Antonio Montes de Oca Ruiz · 1-1800-0270     |
-| **Entrega actual** | Laboratorio 5 — API REST y servicios web |
+| **Entrega actual** | Laboratorio 7 — Seguridad y robustez del sistema |
 
 ---
 
@@ -33,7 +33,25 @@ Universidad Nacional · Escuela de Informática y Computación
 
 ## Qué incluye este laboratorio
 
-El **Laboratorio 5** expone la capa de negocio como **una API REST profesional**: un contrato
+El **Laboratorio 7** prepara el sistema para operar en condiciones reales: resiste los ataques más
+frecuentes, maneja las modificaciones simultáneas sin perder datos, publica cada cambio de forma
+automática y verificada, y deja evidencia suficiente para diagnosticar problemas en producción.
+
+| Entregable | Dónde está |
+|---|---|
+| **Pipeline completo**: `verificar` (ruff, `pip-audit`, pruebas con cobertura ≥ 70 % en negocio, integración con PostgreSQL, imagen Docker construida y arrancada) y `desplegar` (solo desde `master`/`main`, solo si todo pasó, con el *deploy hook* en GitHub Secrets) | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) · [`Dockerfile`](Dockerfile) · [Despliegue](#despliegue) |
+| **Auditoría de seguridad**: los ocho puntos de la lista de verificación y las diez categorías del OWASP Top 10:2025, con hallazgo, riesgo, corrección y commit | [`AUDITORIA-SEGURIDAD.md`](AUDITORIA-SEGURIDAD.md) |
+| **Concurrencia**: bloqueo optimista en `Presupuesto` (`version_id_col`, el `@Version` de JPA), migración `V9`, el conflicto como `409` Problem Details en el manejador global, y las pruebas que lo provocan con dos transacciones reales | [`presupuesto.py`](src/app/data/models/presupuesto.py) · [`V9`](db/postgres/migrations/V9__version_para_bloqueo_optimista.sql) · [`errores.py`](src/app/presentation/errores.py) · [`test_concurrencia_presupuesto.py`](tests/test_concurrencia_presupuesto.py) · [`test_concurrencia_postgres.py`](tests/integracion/test_concurrencia_postgres.py) |
+| **Observabilidad**: `/actuator/health` sin detalles, registros JSON en stdout con id de petición, y los eventos de seguridad registrados sin contraseñas ni tokens | [`actuator.py`](src/app/presentation/routers/actuator.py) · [`registros.py`](src/app/config/registros.py) · [`middleware.py`](src/app/presentation/middleware.py) · [Observabilidad](#observabilidad) |
+| **Pruebas**: 499 automatizadas en verde en el CI —442 unitarias y de la API, 57 de integración—, incluidas las de 401/403 y la de concurrencia | [`tests/`](tests/) |
+
+**Por qué el presupuesto tiene contención real:** `monto_consumido` lo leen, suman y vuelven a
+escribir a la vez el registro manual de una compra (Proceso 1), la conciliación de los comprobantes
+que llegan solos por correo (Proceso 2), la anulación y la corrección del límite, así que dos
+compras de la misma categoría y mes confirmadas al mismo tiempo leen el mismo consumido y, sin
+bloqueo, la segunda borraría el gasto de la primera sin ningún error.
+
+El **Laboratorio 5**, que sigue en el repositorio, expone la capa de negocio como **una API REST profesional**: un contrato
 versionado y documentado, con semántica HTTP correcta, errores estándar, colecciones paginadas y
 seguridad con JWT y roles, verificado con pruebas de integración.
 
@@ -275,7 +293,7 @@ $env:GASTONOMO_URL_BASE_DATOS = "postgresql+psycopg://gastonomo:gastonomo_local@
 
 La aplicación crea su esquema con `Base.metadata.create_all()` al arrancar, así que hay que
 apuntarla a una base **vacía**, no a la que ya migró Flyway. El mapeo y las migraciones describen el
-mismo esquema -lo verifican las pruebas de integración, que corren contra `V1`…`V8`-; el detalle está
+mismo esquema -lo verifican las pruebas de integración, que corren contra `V1`…`V9`-; el detalle está
 en [Persistencia §2.3](docs/persistencia.md#23--estado-del-mapeo-frente-al-esquema-del-laboratorio-2).
 
 La bitácora de compras escribe en una base de Mongo propia (`gastonomo_app`), distinta de la que
@@ -291,6 +309,7 @@ aplicación funciona igual: la bitácora explica lo que pasó, no lo decide (ver
 | Recurso | Operaciones | Notas |
 |---|---|---|
 | `/api/salud` | `GET` | Público y sin versión |
+| `/actuator/health` | `GET` | Público. `{"status":"UP"}` o `503 {"status":"DOWN"}` si la base no responde |
 | `/api/v1/auth/login` | `POST` | Público. Emite el JWT |
 | `/api/v1/usuarios` | `POST` · `GET` · `GET /yo` · `GET /{id}` | Registrarse es público; listar es de `ADMIN` |
 | `/api/v1/categorias` | `POST` · `GET` · `GET /{id}` · `PUT /{id}` · `DELETE /{id}` | |
@@ -314,12 +333,12 @@ pytest -v
 ruff check . && ruff format --check .
 ```
 
-Son los mismos comandos que ejecuta la integración continua. **407 pruebas** corren contra una
-base SQLite **en memoria** o directamente con dobles, así que no tocan ningún archivo ni necesitan
-infraestructura.
+Son los mismos comandos que ejecuta la integración continua. **442 pruebas** corren contra una
+base SQLite **en memoria** (o en un archivo temporal, las de concurrencia) o directamente con
+dobles, así que no necesitan infraestructura.
 
-Aparte están las **55 pruebas de integración**, que levantan un PostgreSQL 16 real en Docker con
-Testcontainers, le aplican las migraciones de Flyway (`V1`…`V8`) y lo apagan al terminar:
+Aparte están las **57 pruebas de integración**, que levantan un PostgreSQL 16 real en Docker con
+Testcontainers, le aplican las migraciones de Flyway (`V1`…`V9`) y lo apagan al terminar:
 
 ```bash
 pytest -m integracion
@@ -348,9 +367,11 @@ src/app/
 ├── presentation/   → Habla HTTP. Recibe JSON, llama al servicio, devuelve JSON.
 │   ├── routers/        un archivo por recurso: auth · usuarios · categorias · comercios ·
 │   │                   metodos_pago · presupuestos · reglas_categorizacion · compras ·
-│   │                   cuentas_correo · comprobantes · salud
+│   │                   cuentas_correo · comprobantes · salud · actuator
 │   ├── schemas.py      DTOs de entrada y salida, con su validación de formato
-│   ├── errores.py      el manejador global: todo error sale como Problem Details
+│   ├── errores.py      el manejador global: todo error sale como Problem Details,
+│   │                   y de acá salen los eventos de seguridad
+│   ├── middleware.py   id de petición, línea de acceso y cabeceras de seguridad
 │   ├── paginacion.py   los parámetros de página y el sobre de respuesta
 │   ├── rutas.py        la versión del contrato (/api/v1), en un solo lugar
 │   └── dependencies.py arma cada servicio, y la cadena de seguridad (token y rol)
@@ -358,7 +379,7 @@ src/app/
 ├── business/       → Reglas del negocio. No sabe que existe HTTP.
 │   ├── services/       los dos procesos, los servicios de catálogo, la autenticación,
 │   │                   la cadena de categorización y el State del comprobante
-│   ├── seguridad/      contrasenas.py (bcrypt) · tokens.py (JWT)
+│   ├── seguridad/      contrasenas.py (bcrypt) · tokens.py (JWT) · intentos.py (límite de login)
 │   └── errors.py       familias de error y una excepción con nombre por regla
 │
 ├── data/           → Entidades y consultas. No contiene reglas de negocio.
@@ -370,7 +391,8 @@ src/app/
 │   └── paginacion.py   SolicitudDePagina · Pagina · paginar
 │
 ├── config/         → Lo que cambia entre máquinas.
-│   ├── settings.py     nombre, versión, URL de la base, Mongo, clave de los JWT
+│   ├── settings.py     nombre, versión, URL de la base, Mongo, clave de los JWT, entorno
+│   ├── registros.py    los registros JSON por stdout, con redacción de secretos
 │   ├── database.py     motor, sesión por petición, esquema y siembra del administrador
 │   └── cliente_mongo.py cliente Mongo compartido, con su validador
 │
@@ -383,7 +405,7 @@ datos, no código de la aplicación:
 ```
 db/
 ├── postgres/
-│   ├── migrations/     → V1..V8, el historial versionado del esquema
+│   ├── migrations/     → V1..V9, el historial versionado del esquema
 │   └── seeds/          → datos de ejemplo (callback afterMigrate, no migración)
 ├── mongo/
 │   └── init/           → colección bitacora_compras: validador, índices y datos
@@ -404,6 +426,7 @@ Tres decisiones sostienen la separación, ya que Python no la impone por sí sol
 
 | Documento | Qué contiene |
 |---|---|
+| [Auditoría de seguridad](AUDITORIA-SEGURIDAD.md) | **Laboratorio 7.** La lista de verificación y el OWASP Top 10:2025: cada hallazgo, su riesgo, la corrección y el commit; y lo que queda abierto. |
 | [API REST](docs/api.md) | **Laboratorio 5.** El contrato público: diseño de los recursos, Problem Details, paginación y *Specifications*, seguridad con JWT y roles, OpenAPI y las pruebas de integración. |
 | [Capa de negocio](docs/negocio.md) | **Laboratorio 4.** Los dos procesos como servicios con sus reglas, la transacción de cinco tablas, la frontera de DTOs, los dos patrones de diseño con la señal que los justificó, y lo que queda abierto. |
 | [Persistencia](docs/persistencia.md) | **Laboratorio 3.** El mapeo objeto-relacional, los repositorios con generalización, las consultas de negocio con su SQL generado, la evidencia del N+1 y lo que queda abierto. |
@@ -416,22 +439,74 @@ Tres decisiones sostienen la separación, ya que Python no la impone por sí sol
 
 ---
 
-## Integración continua
+## Integración y despliegue continuos
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) corre en cada push y en cada pull request
-sobre `main` y `master`. En una máquina limpia:
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) tiene dos trabajos. **`verificar`** corre en
+cada push y en cada pull request sobre `main` y `master`, en una máquina limpia:
 
 1. Instala el proyecto y sus dependencias de desarrollo.
 2. Revisa el código con `ruff check` y `ruff format --check`.
-3. Corre las 407 pruebas rápidas midiendo la cobertura de la capa de negocio
-   (`pytest -m "not integracion" --cov`), con umbral del 70 %: si baja de ahí, el paso falla.
-4. Corre las **55 pruebas de integración contra un PostgreSQL real** con el esquema de Flyway:
-   Testcontainers levanta el contenedor dentro del propio runner, así que no hace falta declarar
-   ningún `services:`.
-5. **Levanta el servidor de verdad** con uvicorn y confirma que `/api/salud` responde.
+3. **Audita las dependencias con `pip-audit`**: un CVE conocido en cualquier paquete frena todo.
+4. Corre las 442 pruebas rápidas midiendo la cobertura de la capa de negocio
+   (`pytest -m "not integracion" --cov`), con umbral del 70 % —el equivalente del *check* de
+   JaCoCo—: si baja de ahí, el paso falla.
+5. Corre las **57 pruebas de integración contra un PostgreSQL real** con el esquema de Flyway.
+6. **Construye la imagen Docker** que se va a desplegar, la arranca en modo producción y confirma
+   que `/actuator/health` responde `UP`.
+
+**`desplegar`** depende de `verificar` y corre **solo** en un `push` a `master`/`main` —nunca en un
+pull request— y **solo si `verificar` pasó entero**. Le pide a la plataforma que publique la versión
+nueva por su *deploy hook* y espera a que producción responda `UP` en `/actuator/health`.
 
 El estado se ve en la pestaña **Actions** del repositorio y en la insignia del inicio de este
 README.
+
+---
+
+## Despliegue
+
+La API corre como un contenedor construido desde el [`Dockerfile`](Dockerfile), con un PostgreSQL
+administrado por la plataforma. El pipeline no guarda ninguna credencial: todo lo sensible vive en
+GitHub y en la plataforma.
+
+**En GitHub** → *Settings → Environments → `produccion`*:
+
+| Nombre | Tipo | Qué es |
+|---|---|---|
+| `DEPLOY_HOOK_URL` | *Secret* | La URL del *deploy hook* del servicio en la plataforma. Quien la tenga puede forzar despliegues |
+| `URL_PRODUCCION` | *Variable* | La URL pública de la API, para el chequeo de salud posterior al despliegue |
+
+**En la plataforma**, como variables de entorno del servicio: `GASTONOMO_URL_BASE_DATOS` (la del
+PostgreSQL administrado, `postgresql+psycopg://…`), `GASTONOMO_JWT_SECRETO` (≥ 32 caracteres) y
+`GASTONOMO_ORIGENES_PERMITIDOS`. El despliegue automático propio de la plataforma va **apagado**:
+el único que despliega es el pipeline, después de verificar. La ruta de *health check* del servicio
+es `/actuator/health`.
+
+**Protección de la rama `master`** → *Settings → Branches → Add rule*: exigir pull request antes de
+fusionar y exigir que el check **`verificar`** pase. Así nada llega a `master` —ni, por lo tanto, a
+producción— sin pasar el pipeline.
+
+---
+
+## Observabilidad
+
+**Salud.** `GET /actuator/health` responde `{"status":"UP"}`, o `503 {"status":"DOWN"}` si la base
+no responde a un `SELECT 1`. No da detalles —ni base, ni versión, ni el porqué del fallo—: el porqué
+queda en el registro. Lo consultan la plataforma, el `HEALTHCHECK` de la imagen y el pipeline.
+
+**Registros estructurados.** Todo sale por stdout como una línea JSON, incluidas las de uvicorn.
+Cada petición deja una línea de acceso con su `id_peticion`, que el cliente recibe en
+`X-Request-ID` y que comparten todas las líneas que esa petición produjo:
+
+```json
+{"momento": "2026-10-25T19:01:56.083720+00:00", "nivel": "WARNING", "registrador": "gastonomo.seguridad", "mensaje": "Inicio de sesión fallido", "id_peticion": "d95997696d5047a69ac5d35822cbf4e9", "evento": "inicio_sesion_fallido", "metodo": "POST", "ruta": "/api/v1/auth/login", "ip": "172.17.0.1", "usuario_id": null, "codigo": "CredencialesInvalidas"}
+```
+
+**Eventos de seguridad** (registrador `gastonomo.seguridad`, campo `evento`):
+`inicio_sesion_fallido` · `inicio_sesion_exitoso` · `inicio_sesion_bloqueado` ·
+`acceso_no_autenticado` · `acceso_denegado` · `conflicto_de_concurrencia`. Nunca llevan la
+contraseña, el token ni la *query string*; y si un campo se llama como un secreto, el formateador lo
+reemplaza por `[REDACTADO]`.
 
 ---
 
@@ -453,7 +528,11 @@ contenido exacto de cada uno, así que lo pendiente queda listado sin asignarle 
 - [x] **Laboratorio 4** *(entregado)* — La capa de negocio: los dos procesos del dominio como
       servicios con reglas, la transacción de cinco tablas con su prueba de *rollback*, la frontera
       de DTOs y los patrones de diseño. Ver [Capa de negocio](docs/negocio.md).
-- [x] **Laboratorio 5** *(esta entrega)* — API REST versionada (`/api/v1`) con Problem Details,
+- [x] **Laboratorio 7** *(esta entrega)* — Auditoría de seguridad con el OWASP Top 10:2025 y sus
+      correcciones, bloqueo optimista del presupuesto con su `409`, pipeline completo con
+      despliegue automático y observabilidad mínima. Ver
+      [AUDITORIA-SEGURIDAD.md](AUDITORIA-SEGURIDAD.md).
+- [x] **Laboratorio 5** *(entregado)* — API REST versionada (`/api/v1`) con Problem Details,
       colecciones paginadas con *Specifications*, seguridad JWT con dos roles, OpenAPI y pruebas de
       integración de los códigos de estado. Y la retroalimentación del Laboratorio 4, atendida
       completa. Ver [API REST](docs/api.md).
