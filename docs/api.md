@@ -249,6 +249,17 @@ de otra cuenta.
 nombre que ya existe, una categoría padre que no recibe gasto, una compra ya anulada, un
 comprobante que ya se había recibido.
 
+<a id="conflicto-de-concurrencia"></a>
+**Conflicto de concurrencia · 409** *(Laboratorio 7)*. Otro cambio llegó primero al mismo dato y
+este no se aplicó: el bloqueo optimista del presupuesto. Sale igual —`codigo:
+ConflictoDeConcurrencia`— si el cliente manda una `version` vieja en el `PUT` o si la colisión se
+detecta al escribir (`StaleDataError`). La salida es volver a consultar el recurso y reintentar
+sobre lo vigente. Ver [AUDITORIA-SEGURIDAD.md](../AUDITORIA-SEGURIDAD.md) y el README.
+
+<a id="demasiados-intentos"></a>
+**Demasiados intentos · 429** *(Laboratorio 7)*. Cinco inicios de sesión fallidos en 15 minutos
+bloquean esa cuenta 15 minutos. Trae `Retry-After` con los segundos que faltan.
+
 <a id="datos-invalidos"></a>
 **Datos inválidos · 422.** La forma es correcta pero rompe una regla del dominio: una fecha futura,
 un descuento mayor que el monto, un rango invertido.

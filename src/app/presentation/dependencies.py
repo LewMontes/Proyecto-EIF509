@@ -20,7 +20,7 @@ from collections.abc import Callable
 from typing import Annotated
 
 import httpx
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -66,11 +66,20 @@ ClienteHttpDependencia = Annotated[httpx.Client, Depends(obtener_cliente_http)]
 # ---- seguridad ----
 
 
-def obtener_servicio_de_auth(sesion: SesionDependencia) -> AuthService:
-    """Arma el servicio de autenticacion con la clave de firma del ambiente."""
+def obtener_servicio_de_auth(sesion: SesionDependencia, peticion: Request) -> AuthService:
+    """Arma el servicio de autenticacion con la clave de firma del ambiente.
+
+    El limitador de intentos de login no se arma aca: tiene que sobrevivir
+    entre peticiones -cuenta fallos de varios minutos-, asi que vive en el
+    estado de la aplicacion (`crear_app` lo crea). Uno por app y no global del
+    modulo, para que cada prueba arranque con el conteo en cero.
+    """
     configuracion = obtener_configuracion()
     return AuthService(
-        UsuarioRepository(sesion), configuracion.jwt_secreto, configuracion.jwt_minutos
+        UsuarioRepository(sesion),
+        configuracion.jwt_secreto,
+        configuracion.jwt_minutos,
+        limitador=getattr(peticion.app.state, "limitador_de_intentos", None),
     )
 
 
@@ -89,16 +98,21 @@ CredencialesBearer = Annotated[HTTPAuthorizationCredentials | None, Depends(_esq
 
 
 def obtener_usuario_actual(
-    credenciales: CredencialesBearer, servicio: ServicioDeAuth
+    credenciales: CredencialesBearer, servicio: ServicioDeAuth, peticion: Request
 ) -> UsuarioAutenticado:
     """La identidad detras de la peticion, a partir de `Authorization: Bearer <token>`.
 
     Todo endpoint protegido depende de esto, y de aca sale el `usuario_id` de
     cada operacion: ningun endpoint lo acepta del cuerpo ni de la URL.
+
+    El id queda ademas en `peticion.state`, para que la linea de acceso y los
+    eventos de seguridad digan quien pidio -el id, nunca el token-.
     """
     if credenciales is None:
         raise NoAutenticado("Falta el token de acceso: iniciá sesión en /api/v1/auth/login.")
-    return servicio.usuario_de_token(credenciales.credentials)
+    usuario = servicio.usuario_de_token(credenciales.credentials)
+    peticion.state.usuario_id = usuario.id
+    return usuario
 
 
 UsuarioActual = Annotated[UsuarioAutenticado, Depends(obtener_usuario_actual)]

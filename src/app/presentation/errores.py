@@ -26,6 +26,13 @@ application/problem+json` y un cuerpo con cinco miembros estándar.
 **Ninguna traza llega al cliente.** Lo que no es un error de negocio conocido
 cae en el manejador de `Exception`, que responde un 500 genérico y deja la
 traza donde corresponde: en el log del servidor.
+
+**Los eventos de seguridad salen de acá** (Laboratorio 7): un inicio de sesión
+fallido, un token rechazado, un acceso denegado, un login bloqueado o un
+conflicto de concurrencia pasan todos por este archivo, así que es el único
+lugar que los tiene que registrar. Van al registrador `gastonomo.seguridad`
+con un campo `evento` fijo para poder filtrarlos, y nunca con la contraseña ni
+el token: solo qué pasó, dónde, desde qué IP y -si ya se sabe- quién.
 """
 
 import logging
@@ -37,19 +44,25 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import StaleDataError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.business.errors import (
     AccesoDenegado,
+    ConflictoDeConcurrencia,
+    CredencialesInvalidas,
     DatosInvalidos,
+    DemasiadosIntentos,
     ErrorDeNegocio,
     ErrorDeProveedorExterno,
     NoAutenticado,
     RecursoNoEncontrado,
     ReglaDeNegocioViolada,
 )
+from app.presentation.middleware import ip_de
 
 registro = logging.getLogger("gastonomo.api")
+registro_de_seguridad = logging.getLogger("gastonomo.seguridad")
 
 TIPO_DE_CONTENIDO = "application/problem+json"
 # Cada `type` es una URL que resuelve a la sección de la documentación que
@@ -103,6 +116,14 @@ _FAMILIAS: tuple[tuple[type[ErrorDeNegocio], int, str, str], ...] = (
         "El recurso no existe en esta cuenta",
     ),
     (
+        # Antes que su familia: mismo 409, pero con la clase de problema que
+        # también usa el manejador de `StaleDataError`.
+        ConflictoDeConcurrencia,
+        409,
+        "conflicto-de-concurrencia",
+        "Otro cambio llegó primero al mismo dato",
+    ),
+    (
         ReglaDeNegocioViolada,
         409,
         "regla-de-negocio-violada",
@@ -120,6 +141,22 @@ _FAMILIAS: tuple[tuple[type[ErrorDeNegocio], int, str, str], ...] = (
         "proveedor-externo",
         "Un servicio externo no respondió",
     ),
+    (
+        DemasiadosIntentos,
+        429,
+        "demasiados-intentos",
+        "Demasiados intentos: hay que esperar antes de volver a probar",
+    ),
+)
+
+# Error de negocio → (evento de seguridad, mensaje). Gana la primera que calza:
+# `CredencialesInvalidas` es un `NoAutenticado`, así que va antes.
+_EVENTOS_DE_SEGURIDAD: tuple[tuple[type[ErrorDeNegocio], str, str], ...] = (
+    (CredencialesInvalidas, "inicio_sesion_fallido", "Inicio de sesión fallido"),
+    (DemasiadosIntentos, "inicio_sesion_bloqueado", "Inicio de sesión bloqueado por intentos"),
+    (NoAutenticado, "acceso_no_autenticado", "Petición sin un token válido"),
+    (AccesoDenegado, "acceso_denegado", "Acceso denegado por rol"),
+    (ConflictoDeConcurrencia, "conflicto_de_concurrencia", "Conflicto de concurrencia"),
 )
 
 # Lo que cada endpoint puede responder, para que quede en el contrato OpenAPI.
@@ -207,10 +244,16 @@ def registrar_manejadores_de_error(app: FastAPI) -> None:
         -`CategoriaNoEsHoja`, `CuadreFueraDeTolerancia`- no necesita registrarse
         acá, hereda el código de su familia y aporta su nombre como `codigo`.
         """
+        _registrar_evento_de_seguridad(peticion, error)
         for familia, status, ancla, titulo in _FAMILIAS:
             if isinstance(error, familia):
+                encabezados = None
                 # El 401 lleva el encabezado que le dice al cliente cómo autenticarse.
-                encabezados = {"WWW-Authenticate": "Bearer"} if status == 401 else None
+                if status == 401:
+                    encabezados = {"WWW-Authenticate": "Bearer"}
+                # El 429, cuánto esperar antes de volver a intentar.
+                if isinstance(error, DemasiadosIntentos):
+                    encabezados = {"Retry-After": str(error.segundos_de_espera)}
                 return _problema(
                     peticion,
                     status,
@@ -279,9 +322,57 @@ def registrar_manejadores_de_error(app: FastAPI) -> None:
             "La operación entra en conflicto con datos que ya existen.",
         )
 
+    @app.exception_handler(StaleDataError)
+    def _de_concurrencia(peticion: Request, error: StaleDataError) -> JSONResponse:
+        """El bloqueo optimista detectó, al escribir, que otro llegó primero.
+
+        Es el `OptimisticLockingFailureException` de Spring: el `UPDATE ...
+        WHERE version = :v` de un `Presupuesto` no tocó ninguna fila porque
+        otra transacción ya había subido la versión. Nada se escribió -la
+        transacción se revierte entera- y el cliente recibe un 409 con el mismo
+        `codigo` que cuando manda una versión vieja: para él es el mismo
+        conflicto, y la salida es la misma, volver a leer y reintentar.
+        """
+        _registrar_evento_de_seguridad(
+            peticion, ConflictoDeConcurrencia("Otra transacción modificó el dato primero.")
+        )
+        return _problema(
+            peticion,
+            409,
+            "conflicto-de-concurrencia",
+            "Otro cambio llegó primero al mismo dato",
+            "El recurso cambió mientras se procesaba esta operación y no se aplicó nada. "
+            "Volvé a consultarlo y reintentá.",
+            codigo=ConflictoDeConcurrencia.__name__,
+        )
+
     @app.exception_handler(Exception)
     def _inesperado(peticion: Request, error: Exception) -> JSONResponse:
         return _error_interno(peticion, error)
+
+
+def _registrar_evento_de_seguridad(peticion: Request, error: ErrorDeNegocio) -> None:
+    """Deja en el registro los errores que un equipo de seguridad querría ver.
+
+    Lo que viaja: el evento, el método y la ruta (sin *query string*), la IP,
+    el titular si ya se había identificado, y el nombre de la regla. Lo que no:
+    el cuerpo de la petición -ahí va la contraseña- ni el encabezado
+    `Authorization`.
+    """
+    for familia, evento, mensaje in _EVENTOS_DE_SEGURIDAD:
+        if isinstance(error, familia):
+            registro_de_seguridad.warning(
+                mensaje,
+                extra={
+                    "evento": evento,
+                    "metodo": peticion.method,
+                    "ruta": peticion.url.path,
+                    "ip": ip_de(peticion),
+                    "usuario_id": getattr(peticion.state, "usuario_id", None),
+                    "codigo": type(error).__name__,
+                },
+            )
+            return
 
 
 def _error_interno(peticion: Request, error: Exception) -> JSONResponse:
